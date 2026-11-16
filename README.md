@@ -4,43 +4,44 @@ A collaborative AI book writing system using multiple specialized agents. Feed i
 
 ## The pipeline at a glance
 
-```text
-  A SEED  ────────────────────────────────────────────────────────────────────
-  a .md file · --prompt "…" · seeds/example_seed.md · the GUI's new-book form
-      │
-      ▼
- ┌────┬──────────────────────────────────────────────────────────────────────┐
- │ 0  SEED REVIEW    can this seed carry the book's length?                  │
- │                                                                           │
- │      scenes the seed supplies ──► quotes checked in code ──► words/scene  │
- │                                                                           │
- │      verdict ──► too long or too short ──► ask, expand, review again      │
- │              └─► about right ──► go on to the book's size                 │
- │                                                                           │
- │      the expansion you keep is the MASTER SEED  (state/seed.json)         │
- └──────────────────────────────────┬────────────────────────────────────────┘
-                                    ▼
- ┌──────────────────────────────────┬────────────────────────────────────────┐
- │ 1  ARCHITECT    seed + your answers ──► story bible (JSON)                │
- │                                                                           │
- │ 2  PLANNER      bible + the seed's own outline ──► chapter outline        │
- │                 └── --plan-only stops here: read the plan, rerun later    │
- │                                                                           │
- │ 3  RESEARCHER   per chapter: a lore brief (+ optional SearXNG fact-check) │
- │                                                                           │
- │ 4  WRITER       chapter N from bible + brief + story state + recap        │
- │                    └──► next chapter's summary and story facts            │
- │ 5  EDITOR       lint + reviewer ──► revise ──► polish ──► keep the better │
- │                 up to 4 revise rounds while findings last, and whichever  │
- │                 version is cleaner is the one kept                        │
- │                                                                           │
- │      then back to step 4 for chapter N+1; with review_as_you_go a chapter │
- │      is edited (and its facts re-extracted) before the next is written    │
- └──────────────────────────────────┬────────────────────────────────────────┘
-                                    ▼
-   output/draft.md · chapters/chapter_NN.md · story_bible.md
-   interim/ what is happening now · state/ what a rerun resumes from
-   make_epub.py ──► output/<title>.epub
+```mermaid
+flowchart TD
+    seed["Seed prompt<br/>a .md file, --prompt, or the GUI's new-book form"]
+
+    subgraph review["Step 0 - Seed review"]
+        direction TB
+        scenes["Model lists the seed's scenes with quotes;<br/>code checks each quote and counts words per scene"]
+        verdict{"does that fill the asked-for size?"}
+        expand["ask, expand the seed with your answers,<br/>then review the expanded seed again"]
+        master["Master seed<br/>state/seed.json"]
+        scenes --> verdict
+        verdict -- "too long or too short" --> expand --> scenes
+        verdict -- "about right" --> master
+    end
+
+    subgraph steps["Steps 1-5"]
+        direction TB
+        architect["1 Architect<br/>story bible (JSON)"]
+        planner["2 Planner<br/>outline, the seed's own wins"]
+        researcher["3 Researcher<br/>per-chapter lore brief"]
+        writer["4 Writer<br/>chapter N from bible, brief,<br/>story state and recap"]
+        facts["summary + story state<br/>meetings, deaths, injuries, secrets"]
+        editor["5 Editor<br/>lint + reviewer, revise, polish"]
+        cleaner["keep whichever version is cleaner"]
+        more{"more chapters?"}
+        architect --> planner --> researcher --> writer
+        writer --> facts --> editor --> cleaner --> more
+        more -- yes --> writer
+    end
+
+    plan(["--plan-only<br/>read the plan, rerun to write"])
+    files["draft.md, chapters/chapter_NN.md, story_bible.md<br/>interim/ and state/ - then make_epub.py"]
+
+    seed --> scenes
+    master --> architect
+    planner -. "--plan-only ends the run here" .-> plan
+    more -- no --> files
+    cleaner -. "review_as_you_go: the next chapter waits<br/>until this one is edited" .-> writer
 ```
 
 The browser runs this same pipeline: the GUI starts one `main.py` per book and
@@ -557,33 +558,18 @@ uv run --extra web uvicorn web.app:app --host 127.0.0.1 --port 8000
 
 Then open <http://127.0.0.1:8000>.
 
-```text
-   open http://127.0.0.1:8000   (a phone on the same network or tailnet works too)
-        │
-        ▼
-   ┌────┬────────────────────────────────────────────────────────────────────┐
-   │ NEW BOOK    seed · chapters · model · seed-review mode · settings       │
-   │             Start ──► the server runs one main.py for this book, in     │
-   │                       a directory of its own: output/web/<run>/         │
-   └───────────────────────────────┬─────────────────────────────────────────┘
-                                   ▼
-   ┌───────────────────────────────┬─────────────────────────────────────────┐
-   │ SEED REVIEW ASKS     the terminal's questions as one form of fields,    │
-   │                      its menus as buttons: answer, take the suggestion, │
-   │                      add notes ──► then keep-or-undo, with every        │
-   │                      changed line of the seed shown                     │
-   └───────────────────────────────┬─────────────────────────────────────────┘
-                                   ▼
-   ┌───────────────────────────────┬─────────────────────────────────────────┐
-   │ THE RUN      chapters appear one by one · the log streams · time left   │
-   │                                                                         │
-   │   Stop    SIGINT: the partial book is saved                             │
-   │   Resume  continues from the last finished chapter                      │
-   │   Files   draft.md, seed.md, bible, chapters, the HTML book, EPUB       │
-   │   Delete  moved to output/web/.trash/<run>, not erased                  │
-   └─────────────────────────────────────────────────────────────────────────┘
-        reload the page, open it on another device, or restart the server:
-        the run is its directory on disk, so the same book comes back
+```mermaid
+flowchart TD
+    open(["open http://127.0.0.1:8000"]) --> form["New book<br/>seed, chapters, model, seed-review mode, settings"]
+    form --> start["Start<br/>one main.py per book, in output/web/run-id/"]
+    start --> asks{"does the seed review ask something?"}
+    asks -- yes --> dialog["the questions as one form of fields, the menus as buttons:<br/>answer, take a suggestion, add notes"]
+    dialog --> undo{"keep this expansion?"}
+    undo -- keep --> run
+    undo -- undo --> run
+    asks -- no --> run["the chapters appear one by one, the log streams,<br/>a time-left estimate sits above them"]
+    run --> acts["Stop - SIGINT, the partial book is saved<br/>Resume - continues from the last finished chapter<br/>Files - draft, seed, bible, chapters, HTML book, EPUB<br/>Delete - moved to output/web/.trash"]
+    acts --> persist["reload the page, open it on another device,<br/>or restart the server: the run is its directory on disk"]
 ```
 
 - **Each book is its own process.** The GUI starts `main.py` as a subprocess
@@ -773,41 +759,44 @@ resume picks up from the last saved chapter.
 
 ## How It Works
 
-### The workflow
+### Checkpoints: what a rerun resumes from
 
 The whole pipeline is the `STAGES` tuple in `main.py`. A stage either returns an
 exit code (and the run stops) or `None` and the next one starts; every stage
 skips work whose result is already in `output/state/`, which is what makes a
-crashed run resumable.
+crashed run resumable. The stage-to-file map:
 
-```text
-   seed prompt
-        │
-        ▼
-   ┌────┬───────────────────────────────────────────────────────────────────┐
-   │ 0  seed review                     state/seed.json (the master seed)   │
-   │       ▲    │                       state/plan.json  (the settled size) │
-   │       │    │ too long or too short: ask, expand, review again          │
-   │       └────┘                                                           │
-   └────────────────────────────────┬───────────────────────────────────────┘
-                                    ▼
-   ┌────────────────────────────────┬───────────────────────────────────────┐
-   │ 1  architect ─────────────► state/bible.json                           │
-   │ 2  planner ───────────────► state/outline.json                         │
-   │        └── --plan-only: the run ends here, rerun to continue           │
-   │ 3  researcher ────────────► state/research.json   (skippable agent)    │
-   │                                                                        │
-   │ 4  writer, chapter N ─────► state/drafts.json, summaries, chronology   │
-   │ 5  editor, chapter N ────► state/final.json                            │
-   │        lint -> review -> revise -> polish -> lint guard                │
-   │                                                                        │
-   │    chapter N+1 returns to 4, until the last chapter is saved           │
-   └────────────────────────────────┬───────────────────────────────────────┘
-                                    ▼
-                    draft.md · chapters/ · book EPUB · story_bible.md
+```mermaid
+flowchart LR
+    subgraph stages["the stages, in order"]
+        direction TB
+        st0["0 seed review"]
+        st1["1 architect"]
+        st2["2 planner"]
+        st3["3 researcher"]
+        st4["4 writer, per chapter"]
+        st5["5 editor, per chapter"]
+    end
 
-   rerun the same command at any point: every stage above whose result is
-   already in state/ is skipped, so it continues from the last chapter saved.
+    subgraph files["written when each one finishes"]
+        direction TB
+        f0["state/seed.json<br/>the master seed, plus plan.json"]
+        f1["state/bible.json"]
+        f2["state/outline.json"]
+        f3["state/research.json"]
+        f4["state/drafts.json<br/>summaries.json, chronology.json"]
+        f5["state/final.json"]
+    end
+
+    st0 --> f0
+    st1 --> f1
+    st2 --> f2
+    st3 --> f3
+    st4 --> f4
+    st5 --> f5
+
+    f0 & f1 & f2 & f3 & f4 & f5 --> resume["a rerun skips any stage whose file is already there"]
+    resume -. "--no-resume archives the whole run<br/>and starts from the seed" .-> st0
 ```
 
 Each of those files is written atomically the moment its stage finishes, which is
