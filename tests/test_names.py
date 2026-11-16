@@ -6,7 +6,7 @@ import pytest
 
 from agents import architect, writer
 from shared.consistency import check_chronology, lint_chapter
-from shared.context import context, reset_context, update_context
+from shared.story import STORY, reset_story, set_story
 from shared.llm_client import load_config
 from shared.llm_utils import extract_seed_characters, same_character
 from shared.story_state import canonical_name, merge_states, normalize_state
@@ -43,7 +43,7 @@ def test_llm_extras_do_not_duplicate_seed_characters(tmp_path, monkeypatch):
     path = tmp_path / "config.yaml"
     path.write_text(f'output:\n  directory: "{tmp_path / "out"}"\n')
     load_config(path)
-    reset_context()
+    reset_story()
     seed = "# Story\n\n## Characters\n\n- **Carole (from No.12)** - supporting. Nosy.\n"
     llm_bible = {"title": "S", "characters": [
         {"name": "Carole", "role": "", "description": "dupe"},
@@ -112,8 +112,8 @@ def test_extractor_prompt_lists_the_bibles_names(tmp_path, monkeypatch):
     path = tmp_path / "config.yaml"
     path.write_text(f'output:\n  directory: "{tmp_path / "out"}"\n')
     load_config(path)
-    reset_context()
-    update_context("bible", {"characters": [{"name": "Carole (from No.12)"},
+    reset_story()
+    set_story("bible", {"characters": [{"name": "Carole (from No.12)"},
                                             {"name": "Elizabeth Hale"}]})
     seen = {}
 
@@ -127,7 +127,7 @@ def test_extractor_prompt_lists_the_bibles_names(tmp_path, monkeypatch):
         1, "One", "Elizabeth Hale was there when she died.")
     assert "Carole, Elizabeth Hale" in seen["prompt"]       # qualifier dropped
     assert state["present"] == ["Elizabeth Hale"]           # snapped
-    assert context["bible"]["characters"][0]["name"].startswith("Carole")
+    assert STORY["bible"]["characters"][0]["name"].startswith("Carole")
 
 
 # ------------------------------------------------ fix 6: name lint false hits
@@ -228,8 +228,8 @@ def test_extractor_prompt_lists_aliases(tmp_path, monkeypatch):
     path = tmp_path / "config.yaml"
     path.write_text(f'output:\n  directory: "{tmp_path / "out"}"\n')
     load_config(path)
-    reset_context()
-    update_context("bible", {"characters": [
+    reset_story()
+    set_story("bible", {"characters": [
         {"name": "Elizabeth", "aliases": ["Bunny"]}, {"name": "Tom"}]})
     seen = {}
 

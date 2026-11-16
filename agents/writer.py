@@ -13,7 +13,7 @@ import time
 from shared import extraction_checks, prompts
 from shared.scene_checks import chapter_cast, seed_places
 from shared.consistency import book_pov, style_rules
-from shared.context import context, update_context
+from shared.story import STORY, set_story
 from shared.llm_utils import clean_llm_text, extract_json
 from shared.llm_client import (AbortRun, EndpointUnavailable, generate_prose,
                                generate_with_wait, get_config)
@@ -242,7 +242,7 @@ def _check_state(number, text, state, canon, aliases):
         print(f"[WRITER] Chapter {number}: ignored name(s) that never appear "
               f"in the text: {', '.join(dropped)}")
 
-    chronology = context.get("chronology") or {}
+    chronology = STORY.get("chronology") or {}
     prior_dead = {n.lower() for n in
                   merge_states(chronology, upto=number)["dead"]}
     # someone who died in an earlier chapter is not "in a scene" (a funeral,
@@ -308,7 +308,7 @@ def _check_state(number, text, state, canon, aliases):
 def _canonical_names():
     """Character names from the story bible, bracketed qualifiers removed."""
     names = []
-    for c in (context.get("bible") or {}).get("characters") or []:
+    for c in (STORY.get("bible") or {}).get("characters") or []:
         name = re.sub(r"\(.*?\)", " ", str(c.get("name", ""))).strip()
         if name and name not in names:
             names.append(name)
@@ -318,7 +318,7 @@ def _canonical_names():
 def _alias_map():
     """{name: [nicknames]} declared in the bible (for characters with any)."""
     out = {}
-    for c in (context.get("bible") or {}).get("characters") or []:
+    for c in (STORY.get("bible") or {}).get("characters") or []:
         name = re.sub(r"\(.*?\)", " ", str(c.get("name", ""))).strip()
         if name and c.get("aliases"):
             out[name] = [str(a) for a in c["aliases"]]
@@ -361,10 +361,10 @@ def _states_markdown(chronology):
 
 
 def _save_state(chapters, drafts, summaries, chronology):
-    """Persist the rolling summaries and story state (context + interim)."""
-    update_context("summaries", summaries)
-    update_context("chronology", chronology)
-    update_context("drafts", drafts)
+    """Persist the rolling summaries and story state (story record + interim)."""
+    set_story("summaries", summaries)
+    set_story("chronology", chronology)
+    set_story("drafts", drafts)
     save_state("drafts", drafts)
     save_state("summaries", summaries)
     save_state("chronology", chronology)
@@ -374,7 +374,7 @@ def _save_state(chapters, drafts, summaries, chronology):
 
 def _final_body(number):
     """Body of chapter `number` as edited, or None before it is edited."""
-    return (context.get("final") or {}).get(number)
+    return (STORY.get("final") or {}).get(number)
 
 
 def refresh_state(number):
@@ -382,9 +382,9 @@ def refresh_state(number):
     (edited) text, so later chapters and reviews build on what the book now
     says rather than on the unrevised draft. Keeps the old state if the
     extraction fails. Returns True when the state was refreshed."""
-    chapters = context.get("chapters", [])
+    chapters = STORY.get("chapters", [])
     chapter = next((c for c in chapters if c["number"] == number), None)
-    drafts = context.get("drafts", {})
+    drafts = STORY.get("drafts", {})
     text = _final_body(number) or drafts.get(number)
     if not chapter or not text:
         return False
@@ -392,8 +392,8 @@ def refresh_state(number):
                                     fallback=False)
     if result is None:
         return False
-    summaries = context.get("summaries", {})
-    chronology = context.get("chronology", {})
+    summaries = STORY.get("summaries", {})
+    chronology = STORY.get("chronology", {})
     summaries[number], chronology[number] = result
     _save_state(chapters, drafts, summaries, chronology)
     print(f"[WRITER] Story state for chapter {number} refreshed from the "
@@ -416,13 +416,13 @@ def run_writer(only=None):
     tolerance = float(cfg["book"]["word_count_tolerance"])
     min_words, max_words = int(words * tolerance), int(words * 1.2)
 
-    chapters = context.get("chapters", [])
-    research = context.get("research", {})
-    bible = context.get("bible") or {}
-    title = context.get("title", "")
+    chapters = STORY.get("chapters", [])
+    research = STORY.get("research", {})
+    bible = STORY.get("bible") or {}
+    title = STORY.get("title", "")
 
     if not chapters:
-        print("[WRITER] No chapters found in context. Skipping writing.")
+        print("[WRITER] No chapters found in the story record. Skipping writing.")
         return
 
     window = int(cfg["book"]["summary_window"])
@@ -436,9 +436,9 @@ def run_writer(only=None):
         system += "\n\nSTYLE RULES (checked on every chapter)\n" + "\n".join(
             f"- {r}" for r in rules)
 
-    drafts, summaries, chronology = (context.get("drafts", {}),
-                                    context.get("summaries", {}),
-                                    context.get("chronology", {}))
+    drafts, summaries, chronology = (STORY.get("drafts", {}),
+                                    STORY.get("summaries", {}),
+                                    STORY.get("chronology", {}))
 
     def persist():
         _save_state(chapters, drafts, summaries, chronology)
@@ -483,7 +483,7 @@ def run_writer(only=None):
         # book.style.pov is already in the system message.
         pov_line = ""
         if not str((cfg["book"].get("style") or {}).get("pov") or "").strip():
-            pov, _ = book_pov(None, [context.get("seed", "")]
+            pov, _ = book_pov(None, [STORY.get("seed", "")]
                               + list(bible.get("constraints") or []))
             if pov:
                 pov_line = (f"\n- Narrate in the {pov} person, as the rest of "
@@ -498,7 +498,7 @@ def run_writer(only=None):
             pov_line += ("\n- In this chapter's scenes: " + ", ".join(cast)
                          + ". Anyone else may be mentioned or remembered, but "
                          "is not present.")
-        places = seed_places(context.get("seed", ""), bible.get("setting", ""))
+        places = seed_places(STORY.get("seed", ""), bible.get("setting", ""))
         if places:
             pov_line += (f"\n- The book is set in {' / '.join(places)}; do "
                          "not move it to another county.")
@@ -566,8 +566,8 @@ Requirements:
                                                              draft)
         persist()
 
-    update_context("drafts", drafts)
-    update_context("summaries", summaries)
+    set_story("drafts", drafts)
+    set_story("summaries", summaries)
     if only is None:
         print(f"[WRITER] Writing phase complete "
               f"({len(drafts)}/{len(chapters)} drafts).")

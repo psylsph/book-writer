@@ -270,3 +270,19 @@ def test_the_second_check_never_asks_a_contradiction_as_agreement():
         assert "agrees" not in prompt
         assert '{"answer": true} if YES' in prompt
         assert '{"answer": false} if NO' in prompt
+
+
+def test_a_reasoning_effort_reaches_the_verifier(tmp_path):
+    from shared import llm_client
+    cfg = tmp_path / "config.yaml"
+    cfg.write_text("llm:\n  reasoning_effort: xhigh\n")
+    for effort, sent in ((None, "low"), ("xhigh", "xhigh")):   # low: built-in
+        llm_client.load_config(str(cfg))
+        ve.configure("http://h:1", "m", {"reasoning_effort": effort})
+        c = llm_client.get_config()
+        kwargs = llm_client._template_kwargs(c["llm"], c["agents"]["verifier"],
+                                             "verifier")
+        assert kwargs == {"reasoning_effort": sent}
+    with pytest.raises(SystemExit):
+        ve.main(["--config", str(cfg), "--target", "a", "http://h:1", "m",
+                 "--reasoning-effort", "ghost=low"])

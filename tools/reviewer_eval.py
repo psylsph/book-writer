@@ -35,7 +35,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 from agents import reviewer  # noqa: E402
 from shared import llm_client, prompts  # noqa: E402
-from shared.context import reset_context, update_context  # noqa: E402
+from shared.story import reset_story, set_story  # noqa: E402
 from tools import reviewer_prompts  # noqa: E402
 from tools.reviewer_cases import (BIBLE, BRIEF, CASES, CHAPTERS,  # noqa: E402
                                   NUMBER, PLANTED_TYPES, TITLE, chronology)
@@ -130,16 +130,18 @@ def configure(url, model, opts):
         agent.pop(key, None)
     if opts.get("max_tokens"):
         agent["max_tokens"] = int(opts["max_tokens"])
+    if opts.get("reasoning_effort"):
+        agent["reasoning_effort"] = opts["reasoning_effort"]
     if opts.get("no_thinking"):
         agent["reasoning_effort"] = ""
         agent["enable_thinking"] = False
     if opts.get("temperature") is not None:
         agent["temperature"] = opts["temperature"]
-    reset_context()
-    update_context("bible", BIBLE)
-    update_context("chapters", CHAPTERS)
-    update_context("research", {NUMBER: BRIEF})
-    update_context("chronology", chronology())
+    reset_story()
+    set_story("bible", BIBLE)
+    set_story("chapters", CHAPTERS)
+    set_story("research", {NUMBER: BRIEF})
+    set_story("chronology", chronology())
     llm_client.reset_stats()
 
 
@@ -224,6 +226,10 @@ def main(argv=None):
     parser.add_argument("--json-mode", action="store_true")
     parser.add_argument("--no-thinking", action="append", default=[],
                         metavar="LABEL")
+    parser.add_argument("--reasoning-effort", action="append", default=[],
+                        metavar="LABEL=EFFORT",
+                        help="reasoning effort for this target (low, medium, xhigh); "
+                             "default: the agent's built-in default")
     parser.add_argument("--temperature", action="append", default=[],
                         metavar="LABEL=T")
     parser.add_argument("--max-tokens", action="append", default=[],
@@ -247,9 +253,10 @@ def main(argv=None):
     temps = _label_values(args.temperature, float)
     systems = _label_values(args.system)
     caps = _label_values(args.max_tokens, int)
+    efforts = _label_values(args.reasoning_effort)
     known = {label for label, _, _ in args.target}
     for name, mapping in (("--temperature", temps), ("--system", systems),
-                          ("--max-tokens", caps)):
+                          ("--max-tokens", caps), ("--reasoning-effort", efforts)):
         for label in mapping:
             if label not in known:
                 raise SystemExit(f"{name} names unknown target '{label}'")
@@ -276,6 +283,7 @@ def main(argv=None):
         opts = {"no_thinking": label in args.no_thinking,
                 "temperature": temps.get(label), "system": systems.get(label),
                 "max_tokens": caps.get(label),
+                "reasoning_effort": efforts.get(label),
                 "json_mode": args.json_mode, "checks": checks}
         try:
             results[label] = run_target(label, url, model, cases, opts,

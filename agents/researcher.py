@@ -11,7 +11,7 @@ passed to the model as quoted data. The invented world always wins.
 """
 
 from shared import web_search
-from shared.context import context, update_context
+from shared.story import STORY, set_story
 from shared import prompts
 from shared.llm_utils import extract_json
 from shared.llm_client import AbortRun, EndpointUnavailable, generate_with_wait
@@ -193,14 +193,14 @@ def run_researcher():
     Briefs are keyed by chapter number (not title) so lookups can't drift.
     """
     print("[RESEARCHER] Building chapter lore briefs...")
-    chapters = context.get("chapters", [])
-    bible = context.get("bible") or {}
+    chapters = STORY.get("chapters", [])
+    bible = STORY.get("bible") or {}
 
     if not chapters:
-        print("[RESEARCHER] No chapters found in context. Skipping research.")
+        print("[RESEARCHER] No chapters found in the story record. Skipping research.")
         return
 
-    research_data = dict(context.get("research", {}))
+    research_data = dict(STORY.get("research", {}))
     # The whole outline, in the system message: "what to set up or pay off
     # for later" was asked of a researcher that saw only this chapter. It is
     # the same for every brief, so prompt caching keeps it cheap.
@@ -277,6 +277,6 @@ Notes only - do not write prose."""
             research_data[n] = ""          # empty: a rerun tries again
         save_state("research", research_data)
 
-    update_context("research", research_data)
+    set_story("research", research_data)
     done = sum(1 for v in research_data.values() if v)
     print(f"[RESEARCHER] Research phase complete ({done}/{len(chapters)} briefs).")

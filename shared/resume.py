@@ -16,7 +16,7 @@ versions, which kept their state in interim/, are still read.
 import json
 from pathlib import Path
 
-from shared.context import context
+from shared.story import STORY
 from shared.llm_client import AbortRun, get_config
 from shared.output import atomic_write_text, strip_heading
 
@@ -73,9 +73,9 @@ def save_state(key, value):
 
 def note_chapter(number, **fields):
     """Record when chapter `number` reached a step (drafted_at, edited_at)
-    and the editor's one-line note, in context and state/. Never raises
+    and the editor's one-line note, in the story record and state/. Never raises
     except StateWriteError, like every state write."""
-    notes = context.setdefault("chapter_notes", {})
+    notes = STORY.setdefault("chapter_notes", {})
     notes[number] = {**notes.get(number, {}), **fields}
     save_state("chapter_notes", notes)
 

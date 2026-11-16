@@ -45,7 +45,7 @@ agents/            one module per pipeline stage
   reviewer.py      LLM review: continuity / outline / constraints -> JSON verdict
   editor.py        step 5: lint -> review -> bounded revise loop -> polish -> save book
 shared/
-  context.py       the shared in-memory state dict (see invariants)
+  story.py         the run's story record: one dict every stage mutates (see invariants)
   llm_client.py    config loading + the ONLY HTTP path to the LLM (retries, waits, stats)
   llm_utils.py     JSON extraction, output cleanup, deterministic seed parsing
   prompts.py       system prompts for every agent; with_bible() appends the bible
@@ -97,8 +97,8 @@ written, edited and has its story state re-extracted before the next is drafted.
   Its subclasses are `EndpointUnavailable` (server down) and `StateWriteError`
   (state can't be saved). Swallowing one would silently ship degraded output or
   lose resumability; letting it escape lets the user fix the cause and rerun.
-- **Shared context is mutated in place.** Modules do `from shared.context import
-  context`; `reset_context()` clears and refills the same dict. Never rebind it.
+- **The story record is mutated in place.** Modules do `from shared.story import
+  STORY`; `reset_story()` clears and refills the same dict. Never rebind it.
   Chapter-keyed dicts (`drafts`, `research`, `summaries`, `chronology`) use `int`
   keys; JSON round-trips turn them into strings, so `resume.py` converts back.
 - **Chapter text is stored without headings.** `drafts` and `final` map chapter
@@ -161,8 +161,8 @@ written, edited and has its story state re-extracted before the next is drafted.
   `input()` and prompts. Use `tmp_path` for files and point
   `output.directory` there - a test must never write to the real `output/`.
 - `tests/conftest.py` blocks real `requests.get/post` (a test that forgets a stub
-  fails fast instead of hanging). It does **not** reset the shared context,
-  config or LLM stats: reset what your test touches (`reset_context()`,
+  fails fast instead of hanging). It does **not** reset the story record,
+  config or LLM stats: reset what your test touches (`reset_story()`,
   `load_config(path)`, `llm_client.reset_stats()`).
 - New behaviour needs a test. Bug fixes need a regression test.
 - `tools/*_eval.py` need a real model and are run by hand; their pure scoring code

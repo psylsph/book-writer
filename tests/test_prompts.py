@@ -6,7 +6,7 @@ import pytest
 
 from agents import architect, editor, planner, researcher, reviewer, writer
 from shared import prompts, web_search
-from shared.context import context, reset_context, update_context
+from shared.story import STORY, reset_story, set_story
 from shared.llm_client import load_config
 from shared.story_state import minimal_state
 from shared.prompts import unfence
@@ -28,10 +28,10 @@ def _config(tmp_path, extra=""):
                     f"book:\n  words_per_chapter: 100\n{extra}"
                     "agents:\n  reviewer:\n    enabled: false\n")
     load_config(path)
-    reset_context()
-    update_context("bible", BIBLE)
-    update_context("chapters", CHAPTERS)
-    update_context("title", "T")
+    reset_story()
+    set_story("bible", BIBLE)
+    set_story("chapters", CHAPTERS)
+    set_story("title", "T")
 
 
 def _words(n, prefix="alpha"):
@@ -88,13 +88,13 @@ def test_fact_checker_prompt_forbids_leaking_the_story(tmp_path, monkeypatch):
         f'output:\n  directory: "{tmp_path / "out"}"\nweb_search:\n  enabled: true\n'
         "agents:\n  reviewer:\n    enabled: false\n")
     load_config(tmp_path / "config.yaml")
-    update_context("bible", BIBLE)
+    set_story("bible", BIBLE)
     rec = Recorder(lambda p: '["salt marsh tides"]'
                    if "fact-check" in p else "BRIEF")
     monkeypatch.setattr(researcher, "generate_with_wait", rec)
     monkeypatch.setattr(web_search, "is_available", lambda: True)
     monkeypatch.setattr(web_search, "search", lambda q, **k: [])
-    update_context("chapters", CHAPTERS[:1])
+    set_story("chapters", CHAPTERS[:1])
     researcher.run_researcher()
     planning = next(c for c in rec.calls if "fact-check" in c["prompt"])
     assert planning["system"] == prompts.FACT_CHECKER
@@ -112,7 +112,7 @@ def test_extractor_has_a_system_prompt(tmp_path, monkeypatch):
 
 def test_reviewer_gets_the_bible_in_the_system_prompt(tmp_path, monkeypatch):
     _config(tmp_path)
-    update_context("chronology", {})
+    set_story("chronology", {})
     rec = Recorder(json.dumps({"verdict": "pass", "issues": []}))
     monkeypatch.setattr(reviewer, "generate_with_wait", rec)
     reviewer.run_reviewer(1, "One", "A draft.")
@@ -123,10 +123,10 @@ def test_reviewer_gets_the_bible_in_the_system_prompt(tmp_path, monkeypatch):
 
 def test_editor_revise_and_polish_have_system_prompts(tmp_path, monkeypatch):
     _config(tmp_path, "  revision_rounds: 1\n")
-    update_context("bible", {**BIBLE, "constraints": ['Never "foo".']})
-    update_context("drafts", {1: _words(120) + " foo"})
-    update_context("chapters", CHAPTERS[:1])
-    update_context("chronology", {})
+    set_story("bible", {**BIBLE, "constraints": ['Never "foo".']})
+    set_story("drafts", {1: _words(120) + " foo"})
+    set_story("chapters", CHAPTERS[:1])
+    set_story("chronology", {})
 
     def reply(prompt):
         if "You are revising" in prompt:
@@ -174,8 +174,8 @@ def test_writer_system_prompt_carries_the_bible_and_is_stable(tmp_path,
 
 def test_writer_prompt_includes_previous_chapter_ending(tmp_path, monkeypatch):
     rec = _writer_run(tmp_path, monkeypatch)
-    update_context("drafts", {1: "Opening. " + _words(300, "tail")})
-    update_context("chronology", {1: minimal_state(1, "Ch1", "s")})
+    set_story("drafts", {1: "Opening. " + _words(300, "tail")})
+    set_story("chronology", {1: minimal_state(1, "Ch1", "s")})
     writer.run_writer()
     second = rec.calls[0]["prompt"]                 # chapter 2
     assert "PREVIOUS CHAPTER ENDING" in second
@@ -223,18 +223,18 @@ def test_bad_draft_detection(draft, expected):
 def test_writer_retries_once_after_a_refusal(tmp_path, monkeypatch):
     replies = iter(["I can't write that.", _words(120)])
     rec = _writer_run(tmp_path, monkeypatch, lambda p: next(replies))
-    update_context("chapters", CHAPTERS[:1])
+    set_story("chapters", CHAPTERS[:1])
     writer.run_writer()
     assert len(rec.calls) == 2
     assert "not a usable chapter" in rec.calls[1]["prompt"]
-    assert context["drafts"][1].startswith("alpha0")
+    assert STORY["drafts"][1].startswith("alpha0")
 
 
 def test_writer_stops_when_the_model_keeps_refusing(tmp_path, monkeypatch):
     rec = _writer_run(tmp_path, monkeypatch, lambda p: "I can't write that.")
     writer.run_writer()
     assert len(rec.calls) == 2                     # two attempts, then stop
-    assert context["drafts"] == {}                 # the refusal is never saved
+    assert STORY["drafts"] == {}                 # the refusal is never saved
     assert not (tmp_path / "out" / "chapters").exists()
 
 
@@ -298,10 +298,10 @@ def test_researcher_sees_the_whole_outline(tmp_path, monkeypatch):
 
 def _edit_run(tmp_path, monkeypatch, extra="", constraints=(), draft=None):
     _config(tmp_path, "  revision_rounds: 1\n" + extra)
-    update_context("bible", {**BIBLE, "constraints": list(constraints)})
-    update_context("drafts", {1: draft or _words(120)})
-    update_context("chapters", CHAPTERS[:1])
-    update_context("chronology", {})
+    set_story("bible", {**BIBLE, "constraints": list(constraints)})
+    set_story("drafts", {1: draft or _words(120)})
+    set_story("chapters", CHAPTERS[:1])
+    set_story("chronology", {})
 
     def reply(prompt):
         if "You are revising" in prompt:

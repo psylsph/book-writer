@@ -7,7 +7,7 @@ import pytest
 
 from agents import reviewer
 from shared import prompts
-from shared.context import reset_context, update_context
+from shared.story import reset_story, set_story
 from shared.llm_client import EndpointUnavailable, load_config
 from shared.story_state import merge_states
 from tests.fake_llm import FakeResponse
@@ -118,10 +118,10 @@ def _setup_context(tmp_path, interim=True):
     path.write_text(f'output:\n  directory: "{tmp_path / "out"}"\n'
                     f"  interim: {str(interim).lower()}\n")
     load_config(path)
-    reset_context()
-    update_context("bible", BIBLE)
-    update_context("chapters", CHAPTERS)
-    update_context("chronology", chronology())
+    reset_story()
+    set_story("bible", BIBLE)
+    set_story("chapters", CHAPTERS)
+    set_story("chronology", chronology())
 
 
 def test_review_chapter_raises_but_run_reviewer_forgives(tmp_path,
@@ -306,3 +306,22 @@ def test_a_token_cap_applies_only_to_the_labelled_target(tmp_path,
         _eval(tmp_path, ("a", 7001), extra=["--max-tokens", "ghost=100"])
     with pytest.raises(SystemExit):
         _eval(tmp_path, ("a", 7001), extra=["--max-tokens", "a"])
+
+
+def test_a_reasoning_effort_applies_only_to_the_labelled_target(tmp_path,
+                                                                 stub_servers):
+    # The config's agents.reviewer effort is deliberately ignored (the built-in
+    # default is the baseline), so an effort comparison needs this flag: two
+    # config files at different efforts measured the same setup twice.
+    (tmp_path / "config.yaml").write_text(
+        "llm:\n  reasoning_effort: low\n"
+        f'output:\n  directory: "{tmp_path / "out"}"\n')
+    ev.main(["--config", str(tmp_path / "config.yaml"),
+             "--target", "a", "http://h:7001", "ma",
+             "--target", "b", "http://h:7001", "mb", "--cases", "clean-a",
+             "--reasoning-effort", "b=xhigh"])
+    by_model = {p["model"]: p for _, p in stub_servers}
+    assert by_model["ma"]["chat_template_kwargs"] == {"reasoning_effort": "medium"}
+    assert by_model["mb"]["chat_template_kwargs"] == {"reasoning_effort": "xhigh"}
+    with pytest.raises(SystemExit):
+        _eval(tmp_path, ("a", 7001), extra=["--reasoning-effort", "ghost=low"])

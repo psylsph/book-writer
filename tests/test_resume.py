@@ -179,19 +179,19 @@ def test_chapter_notes_merge_and_survive_a_resume(tmp_path):
     """The notes are written one field at a time (drafted, then edited); a
     resumed run must add to them, not start the dict again."""
     import main as pipeline
-    from shared.context import context, reset_context
+    from shared.story import STORY, reset_story
     from shared.resume import note_chapter
     cfg = tmp_path / "config.yaml"
     cfg.write_text(f'output:\n  directory: "{tmp_path / "out"}"\n')
     load_config(cfg)
-    reset_context()
+    reset_story()
     note_chapter(1, drafted_at=10.0)
     note_chapter(1, edited_at=20.0, note="")
     assert load_state()["chapter_notes"] == {
         1: {"drafted_at": 10.0, "edited_at": 20.0, "note": ""}}
 
-    reset_context()                                   # a new process
+    reset_story()                                   # a new process
     pipeline._hydrate_resume(load_state())
     note_chapter(2, drafted_at=30.0)
-    assert set(context["chapter_notes"]) == {1, 2}
+    assert set(STORY["chapter_notes"]) == {1, 2}
     assert load_state()["chapter_notes"][1]["edited_at"] == 20.0

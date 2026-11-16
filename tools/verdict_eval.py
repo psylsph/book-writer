@@ -29,7 +29,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 from agents import researcher  # noqa: E402
 from shared import llm_client, prompts  # noqa: E402
-from shared.context import reset_context  # noqa: E402
+from shared.story import reset_story  # noqa: E402
 from tools import verdict_prompts  # noqa: E402
 from tools.verdict_cases import CASES, KINDS  # noqa: E402
 
@@ -75,12 +75,14 @@ def configure(url, model, opts):
     agent = cfg.setdefault("agents", {}).setdefault("verifier", {})
     for key in ("model", "reasoning_effort", "enable_thinking", "temperature"):
         agent.pop(key, None)
+    if opts.get("reasoning_effort"):
+        agent["reasoning_effort"] = opts["reasoning_effort"]
     if opts.get("no_thinking"):
         agent["reasoning_effort"] = ""
         agent["enable_thinking"] = False
     if opts.get("temperature") is not None:
         agent["temperature"] = opts["temperature"]
-    reset_context()
+    reset_story()
     llm_client.reset_stats()
 
 
@@ -164,6 +166,10 @@ def main(argv=None):
     parser.add_argument("--json-mode", action="store_true")
     parser.add_argument("--no-thinking", action="append", default=[],
                         metavar="LABEL")
+    parser.add_argument("--reasoning-effort", action="append", default=[],
+                        metavar="LABEL=EFFORT",
+                        help="reasoning effort for this target (low, medium, xhigh); "
+                             "default: the agent's built-in default")
     parser.add_argument("--temperature", action="append", default=[],
                         metavar="LABEL=T")
     parser.add_argument("--system", action="append", default=[],
@@ -181,8 +187,10 @@ def main(argv=None):
     llm_client.load_config(args.config)
     temps = _label_values(args.temperature, float)
     systems = _label_values(args.system)
+    efforts = _label_values(args.reasoning_effort)
     known = {label for label, _, _ in args.target}
-    for name, mapping in (("--temperature", temps), ("--system", systems)):
+    for name, mapping in (("--temperature", temps), ("--system", systems),
+                          ("--reasoning-effort", efforts)):
         for label in mapping:
             if label not in known:
                 raise SystemExit(f"{name} names unknown target '{label}'")
@@ -204,6 +212,7 @@ def main(argv=None):
               f"{args.runs})")
         opts = {"no_thinking": label in args.no_thinking,
                 "temperature": temps.get(label), "system": systems.get(label),
+                "reasoning_effort": efforts.get(label),
                 "json_mode": args.json_mode}
         try:
             results[label] = run_target(label, url, model, cases, opts,

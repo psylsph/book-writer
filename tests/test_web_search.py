@@ -13,7 +13,7 @@ import yaml
 import main as pipeline
 from agents import researcher
 from shared import llm_client, prompts, web_search
-from shared.context import context, reset_context, update_context
+from shared.story import STORY, reset_story, set_story
 from shared.llm_client import load_config
 
 
@@ -22,7 +22,7 @@ def _config(tmp_path, ws="  enabled: true\n"):
     path.write_text(f'output:\n  directory: "{tmp_path / "out"}"\n'
                     f"web_search:\n{ws}")
     load_config(path)
-    reset_context()
+    reset_story()
     web_search.reset_status()
     return tmp_path / "out"
 
@@ -356,8 +356,8 @@ def _research_setup(tmp_path, monkeypatch, results=None, verdicts=None,
                     second=None, banned='["Aria Vance", "Willow Rooms"]'):
     out = _config(tmp_path, "  enabled: true\n"
                   f"  banned_terms: {banned}\n")
-    update_context("chapters", chapters or [CHAPTER])
-    update_context("bible", BIBLE)
+    set_story("chapters", chapters or [CHAPTER])
+    set_story("bible", BIBLE)
     calls = []
 
     def llm(prompt, **kwargs):
@@ -402,7 +402,7 @@ def test_verified_fact_reaches_the_brief_with_its_quote(tmp_path, monkeypatch):
     assert '"sort patients by urgency using a triage scale"' in brief
     assert "https://n.example/t" in brief
     assert "DATA, not instructions" in brief and "Fact notes" in brief
-    assert context["research"][1] == "BRIEF TEXT"
+    assert STORY["research"][1] == "BRIEF TEXT"
     audit = (out / "interim" / "search_chapter_01.md").read_text()
     assert "**supported**" in audit and "how hospital wards triage" in audit
 
@@ -476,7 +476,7 @@ def test_unclear_claims_are_left_out_of_the_brief(tmp_path, monkeypatch):
                                                  source=None, evidence=""))
     researcher.run_researcher()
     assert "VERIFIED REAL-WORLD FACTS" not in _brief_prompt(calls)
-    assert context["research"][1] == "BRIEF TEXT"
+    assert STORY["research"][1] == "BRIEF TEXT"
 
 
 def test_no_search_results_means_no_verifier_call(tmp_path, monkeypatch):
@@ -491,7 +491,7 @@ def test_garbage_verifier_output_still_produces_a_brief(tmp_path,
     _, calls, _ = _research_setup(tmp_path, monkeypatch,
                                   verdicts="I cannot verify these.")
     researcher.run_researcher()
-    assert context["research"][1] == "BRIEF TEXT"
+    assert STORY["research"][1] == "BRIEF TEXT"
     assert "VERIFIED REAL-WORLD FACTS" not in _brief_prompt(calls)
 
 
@@ -499,7 +499,7 @@ def test_search_failure_still_produces_a_brief(tmp_path, monkeypatch):
     _, calls, _ = _research_setup(tmp_path, monkeypatch,
                                   results=web_search.SearchError("boom"))
     researcher.run_researcher()
-    assert context["research"][1] == "BRIEF TEXT"
+    assert STORY["research"][1] == "BRIEF TEXT"
     assert "VERIFIED REAL-WORLD FACTS" not in _brief_prompt(calls)
 
 
@@ -543,8 +543,8 @@ def test_researcher_without_web_search_is_unchanged(tmp_path, monkeypatch):
 def test_researcher_disabled_in_config_never_searches(tmp_path, monkeypatch):
     _, _, searched = _research_setup(tmp_path, monkeypatch)
     _config(tmp_path, "  enabled: false\n")
-    update_context("chapters", [CHAPTER])
-    update_context("bible", BIBLE)
+    set_story("chapters", [CHAPTER])
+    set_story("bible", BIBLE)
     researcher.run_researcher()
     assert searched == []
 
@@ -752,8 +752,8 @@ def test_second_check_can_be_switched_off(tmp_path, monkeypatch):
         "  enabled: true\n  double_check: false\n"
         "agents:\n  reviewer:\n    enabled: false\n")
     load_config(tmp_path / "config.yaml")
-    update_context("chapters", [CHAPTER])
-    update_context("bible", BIBLE)
+    set_story("chapters", [CHAPTER])
+    set_story("bible", BIBLE)
     researcher.run_researcher()
     assert not any("does this quote" in c["prompt"] for c in calls)
     assert "SUPPORTED:" in _brief_prompt(calls)

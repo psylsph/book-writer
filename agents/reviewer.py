@@ -16,7 +16,7 @@ into bounded revision rounds.
 import re
 
 from shared import prompts
-from shared.context import context
+from shared.story import STORY
 from shared.llm_client import (AbortRun, generate_with_wait,
                                get_config)
 from shared.llm_utils import extract_json
@@ -78,7 +78,7 @@ def enabled_checks():
 
 
 def _build_prompt(number, title, draft, checks, bible):
-    chronology = context.get("chronology") or {}
+    chronology = STORY.get("chronology") or {}
     parts = ["Review this chapter draft. Report only real, specific "
              "problems of the kinds listed below; style opinions are not "
              "problems."]
@@ -96,9 +96,9 @@ def _build_prompt(number, title, draft, checks, bible):
         types += CONTINUITY_TYPES
 
     if "outline" in checks:
-        chapter = next((c for c in context.get("chapters") or []
+        chapter = next((c for c in STORY.get("chapters") or []
                         if c["number"] == number), {})
-        brief = (context.get("research") or {}).get(number, "")
+        brief = (STORY.get("research") or {}).get(number, "")
         parts.append(f"CHAPTER OUTLINE (what this chapter must deliver)\n"
                      f"{chapter.get('summary') or '(none given)'}"
                      + (f"\n\nLORE BRIEF (plot beats to hit)\n{brief[:1800]}"
@@ -144,7 +144,7 @@ def review_chapter(number, title, draft):
     run_reviewer() turns the former into UNREVIEWED so a bad reply never blocks a
     run, but an evaluation needs to tell the two apart.
     """
-    bible = context.get("bible") or {}
+    bible = STORY.get("bible") or {}
     checks = enabled_checks()
     prompt = _build_prompt(number, title, draft, checks, bible)
     # issue types that belong to a check that is switched off are dropped

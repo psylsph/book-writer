@@ -6,7 +6,7 @@ import pytest
 
 from agents import writer
 from shared import extraction_checks as xc
-from shared.context import context, reset_context, update_context
+from shared.story import STORY, reset_story, set_story
 from shared.llm_client import load_config
 from shared.story_state import merge_states, normalize_state
 
@@ -135,8 +135,8 @@ def _setup(tmp_path, monkeypatch, extraction, answer, book="", alive=None):
     path.write_text(f'output:\n  directory: "{tmp_path / "out"}"\n'
                     + (f"book:\n{book}" if book else ""))
     load_config(path)
-    reset_context()
-    update_context("bible", {"characters": [
+    reset_story()
+    set_story("bible", {"characters": [
         {"name": "Elizabeth Hale", "aliases": ["Liz"]},
         {"name": "Tom Baker"}, {"name": "Marcus Reed"}]})
     calls = []
@@ -258,7 +258,7 @@ def test_a_character_who_died_earlier_is_not_killed_again(
         tmp_path, monkeypatch):
     calls = _setup(tmp_path, monkeypatch, _extract(
         present=["Tom Baker"], events=[DIES]), {"dead": []})
-    update_context("chronology", {
+    set_story("chronology", {
         2: normalize_state(2, "A", {"events": [DIES]}, CANON)})
     funeral = "They buried Marcus at the chapel. Tom carried the coffin."
     state = writer._summarize_and_extract(5, "Funeral", funeral)[1]
@@ -316,7 +316,7 @@ def test_an_outage_during_the_check_still_aborts(tmp_path, monkeypatch):
     monkeypatch.setattr(writer, "generate_with_wait", flaky)
     with pytest.raises(EndpointUnavailable):
         _run(DEATH_TEXT)
-    assert context["bible"]
+    assert STORY["bible"]
 
 
 @pytest.mark.parametrize("etype,who,kept", [
@@ -422,7 +422,7 @@ def test_a_character_who_died_earlier_is_not_listed_as_present(
         tmp_path, monkeypatch, capsys):
     _setup(tmp_path, monkeypatch, _extract(
         present=["Tom Baker", "Marcus Reed", "Liz"]), {})
-    update_context("chronology", {
+    set_story("chronology", {
         2: normalize_state(2, "A", {"events": [DIES]}, CANON)})
     state = writer._summarize_and_extract(
         5, "Funeral", "They buried Marcus Reed. Tom and Liz stood by the grave.")[1]

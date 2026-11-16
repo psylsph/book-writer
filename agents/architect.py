@@ -5,7 +5,7 @@ structured story bible that every later agent uses for consistency.
 """
 
 from shared import prompts
-from shared.context import update_context
+from shared.story import set_story
 from shared.llm_utils import (extract_json, extract_seed_characters,
                               same_character, strip_chapter_length,
                               extract_seed_extras)
@@ -165,9 +165,9 @@ Creative seed:
         bible["clarifications"] = [
             {"question": c["question"], "answer": c["answer"],
              "answered": bool(c.get("answered"))} for c in clarifications]
-    update_context("bible", bible)
-    update_context("title", bible["title"])
-    update_context("seed", seed_text)
+    set_story("bible", bible)
+    set_story("title", bible["title"])
+    set_story("seed", seed_text)
     save_state("bible", bible)
     save_interim("story_bible.md", format_bible_markdown(bible))
     return bible

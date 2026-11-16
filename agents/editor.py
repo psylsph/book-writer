@@ -11,7 +11,7 @@ import time
 from pathlib import Path
 
 from shared import prompts
-from shared.context import context, update_context
+from shared.story import STORY, set_story
 from shared.llm_utils import clean_llm_text
 from shared.llm_client import AbortRun, agent_enabled, \
     generate_prose, get_config
@@ -250,10 +250,10 @@ def run_editor(only=None):
     if only is None:
         print("[EDITOR] Starting review & edit phase...")
     cfg = get_config()
-    bible = context.get("bible") or {}
-    chapters = context.get("chapters", [])
-    drafts = context.get("drafts", {})
-    chronology = context.get("chronology") or {}
+    bible = STORY.get("bible") or {}
+    chapters = STORY.get("chapters", [])
+    drafts = STORY.get("drafts", {})
+    chronology = STORY.get("chronology") or {}
     constraints = bible.get("constraints") or []
     max_rounds = int(cfg["book"]["revision_rounds"])
     target_words = int(cfg["book"]["words_per_chapter"])
@@ -268,7 +268,7 @@ def run_editor(only=None):
     repetition_on = bool(cfg["book"]["repetition_lint"])
     style_cfg = cfg["book"].get("style") or {}
     character_names = [c.get("name", "") for c in bible.get("characters") or []]
-    places = seed_places(context.get("seed", ""), bible.get("setting", ""))
+    places = seed_places(STORY.get("seed", ""), bible.get("setting", ""))
     alias_map = {c["name"]: c["aliases"] for c in bible.get("characters") or []
                  if c.get("aliases")}
     # role + bible reference live in the system message (identical for every
@@ -279,8 +279,8 @@ def run_editor(only=None):
     polish_rules = ("- Do not break these rules (they are checked after you):\n"
                     + "\n".join(f"  - {r}" for r in rules) + "\n") if rules else ""
 
-    final = dict(context.get("final") or {})
-    unreviewed = set(context.get("unreviewed") or ())
+    final = dict(STORY.get("final") or {})
+    unreviewed = set(STORY.get("unreviewed") or ())
     for chapter in chapters:
         n, title = chapter["number"], chapter["title"]
         if only is not None and n != only:
@@ -300,7 +300,7 @@ def run_editor(only=None):
         # book.style.pov is checked by the style lint; without it, the person
         # the seed names, or third person, is held instead
         pov, pov_why = (None, "") if str(style_cfg.get("pov") or "").strip() \
-            else book_pov(None, [context.get("seed", "")] + constraints)
+            else book_pov(None, [STORY.get("seed", "")] + constraints)
 
         cast = chapter_cast(chapter.get("summary", ""),
                             bible.get("characters") or [])
@@ -558,9 +558,9 @@ Return ONLY the edited chapter prose: no heading, no commentary."""
                   "(see review_chapter_NN.md).")
         else:
             unreviewed.discard(n)
-        update_context("unreviewed", unreviewed)
+        set_story("unreviewed", unreviewed)
         final[n] = body
-        update_context("final", final)
+        set_story("final", final)
         save_state("final", final)
         save_state("unreviewed", sorted(unreviewed))
         note_chapter(n, edited_at=time.time(),
@@ -575,7 +575,7 @@ Return ONLY the edited chapter prose: no heading, no commentary."""
         save_chapter(n, title, body)
         print(f"[EDITOR] Chapter {n} complete.")
 
-    update_context("final", final)
+    set_story("final", final)
     # one chapter at a time (review as you go): keep rewriting the same book
     # file, or overwrite: false would leave one numbered copy per chapter
     return finalize_book(final, reuse_path=only is not None)
@@ -584,7 +584,7 @@ Return ONLY the edited chapter prose: no heading, no commentary."""
 def _in_book_order(bodies):
     """[(number, title, body)] for the chapters in `bodies` ({number: body}),
     in outline order."""
-    titles = {c["number"]: c["title"] for c in context.get("chapters") or []}
+    titles = {c["number"]: c["title"] for c in STORY.get("chapters") or []}
     order = [n for n in titles if n in bodies]
     order += sorted(n for n in bodies if n not in titles)
     return [(n, titles.get(n, ""), bodies[n]) for n in order if bodies[n]]
@@ -600,7 +600,7 @@ def finalize_book(bodies, reuse_path=False):
 def _write_lint_report(bodies):
     """Final deterministic lint report across the whole book."""
     cfg = get_config()
-    bible = context.get("bible") or {}
+    bible = STORY.get("bible") or {}
     constraints = bible.get("constraints") or []
     target_words = int(cfg["book"]["words_per_chapter"])
     tolerance = float(cfg["book"]["word_count_tolerance"])
@@ -630,7 +630,7 @@ def _write_lint_report(bodies):
              f"Target/chapter: {target_words} (min {min_words})", "",
              "## Chapter word counts", ""]
     lines += counts or ["(none)"]
-    missed = sorted(n for n in context.get("unreviewed") or () if n in bodies)
+    missed = sorted(n for n in STORY.get("unreviewed") or () if n in bodies)
     if missed:
         lines += ["", "## Not reviewed", "",
                   "The reviewer's reply could not be read for these chapters, "
@@ -659,7 +659,7 @@ def save_book(bodies, reuse_path=False):
 
     filename = cfg["output"]["filename"]
     out_path = out_dir / filename
-    previous = context.get("output_path")
+    previous = STORY.get("output_path")
     if reuse_path and previous and not cfg["output"]["overwrite"]:
         out_path = Path(previous)
     elif not cfg["output"]["overwrite"] and out_path.exists():
@@ -669,19 +669,19 @@ def save_book(bodies, reuse_path=False):
             i += 1
         out_path = out_dir / f"{stem}-{i}{suffix}"
 
-    title = context.get("title") or "Untitled"
+    title = STORY.get("title") or "Untitled"
     book = (f"# {title}\n\n" + "\n\n".join(
         render_chapter(n, t, b) for n, t, b in _in_book_order(bodies)) + "\n")
     try:
         atomic_write_text(out_path, book)
-        update_context("output_path", str(out_path))
+        set_story("output_path", str(out_path))
         print(f"[EDITOR] Final book saved to {out_path}")
     except OSError as e:
         print(f"[EDITOR] Error saving book: {e}")
         return book
 
     # human-readable copy of the story bible for easy inspection
-    bible = context.get("bible") or {}
+    bible = STORY.get("bible") or {}
     try:
         bible_path = out_dir / "story_bible.md"
         atomic_write_text(bible_path, format_bible_markdown(bible))

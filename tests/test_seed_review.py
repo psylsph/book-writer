@@ -7,7 +7,7 @@ import pytest
 import main as pipeline
 from agents import architect, planner, seed_review
 from shared import llm_client
-from shared.context import reset_context
+from shared.story import reset_story
 from shared.llm_client import EndpointUnavailable, load_config
 from shared.llm_utils import render_bible
 from shared.output import format_bible_markdown
@@ -28,7 +28,7 @@ def _config(tmp_path, book=""):
                     f"  max_chapters: 30\n  num_chapters: 5\n{book}"
                     f'output:\n  directory: "{tmp_path / "out"}"\n')
     load_config(path)
-    reset_context()
+    reset_story()
 
 
 def _assessment(**over):
@@ -506,7 +506,7 @@ def test_stopping_writes_nothing_to_resume(tmp_path, monkeypatch):
 @pytest.fixture(autouse=True)
 def _clean():
     yield
-    reset_context()
+    reset_story()
 
 
 def test_the_seed_review_has_its_own_agent_settings(tmp_path, monkeypatch):

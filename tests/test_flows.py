@@ -11,7 +11,7 @@ import main as pipeline
 from agents import architect, editor, researcher
 from agents.reviewer import UNREVIEWED
 from shared import llm_client, output, runlog
-from shared.context import context, reset_context, update_context
+from shared.story import STORY, reset_story, set_story
 from shared.llm_client import EndpointUnavailable, load_config
 from shared.resume import _read_json, load_state, summarize_for_log
 from shared.prompts import unfence
@@ -24,7 +24,7 @@ def _config(tmp_path, book="", agents="", output_extra="", reviewer_on=False):
                     f"book:\n  words_per_chapter: 100\n{book}"
                     f"agents:\n{reviewer}{agents}")
     load_config(path)
-    reset_context()
+    reset_story()
     return tmp_path / "out"
 
 
@@ -77,7 +77,7 @@ def test_garbage_from_the_model_falls_back_but_keeps_the_seeds_own_text(
     assert bible["constraints"] == ['Never "unhurried".']
     assert "Keep it gentle." in bible["notes"]
     assert bible["seed"] == SEED
-    assert context["title"] == "My Story" and context["seed"] == SEED
+    assert STORY["title"] == "My Story" and STORY["seed"] == SEED
 
 
 def test_a_json_array_is_not_a_bible(tmp_path, monkeypatch, capsys):
@@ -124,10 +124,10 @@ CHAPTERS = [{"number": n, "title": f"Ch{n}", "summary": f"s{n}", "part": ""}
 
 def _research(monkeypatch, tmp_path, llm, **ctx):
     _config(tmp_path)
-    update_context("chapters", ctx.get("chapters", CHAPTERS))
-    update_context("bible", {"title": "T", "characters": []})
+    set_story("chapters", ctx.get("chapters", CHAPTERS))
+    set_story("bible", {"title": "T", "characters": []})
     if "research" in ctx:
-        update_context("research", ctx["research"])
+        set_story("research", ctx["research"])
     monkeypatch.setattr(researcher, "generate_with_wait", llm)
 
 
@@ -143,7 +143,7 @@ def test_a_failed_brief_is_recorded_empty_and_the_run_continues(
 
     _research(monkeypatch, tmp_path, llm)
     researcher.run_researcher()
-    assert context["research"] == {1: "", 2: "Brief two"}
+    assert STORY["research"] == {1: "", 2: "Brief two"}
     assert "Error briefing chapter 1: boom" in capsys.readouterr().out
     assert "(1/2 briefs)" in capsys.readouterr().out or True
 
@@ -165,7 +165,7 @@ def test_existing_briefs_are_not_regenerated(tmp_path, monkeypatch):
               lambda p, **k: calls.append(p) or "new",
               research={1: "kept brief"})
     researcher.run_researcher()
-    assert context["research"] == {1: "kept brief", 2: "new"}
+    assert STORY["research"] == {1: "kept brief", 2: "new"}
     assert len(calls) == 1
 
 
@@ -183,8 +183,8 @@ def _web_research(monkeypatch, tmp_path, proposer):
         f'output:\n  directory: "{tmp_path / "out"}"\nweb_search:\n'
         "  enabled: true\nagents:\n  reviewer:\n    enabled: false\n")
     load_config(tmp_path / "config.yaml")
-    update_context("chapters", CHAPTERS[:1])
-    update_context("bible", {"title": "T", "characters": []})
+    set_story("chapters", CHAPTERS[:1])
+    set_story("bible", {"title": "T", "characters": []})
     monkeypatch.setattr(web_search, "is_available", lambda: True)
     monkeypatch.setattr(web_search, "search", lambda q, **k: pytest.fail("searched"))
 
@@ -200,7 +200,7 @@ def test_unreadable_claims_just_mean_no_web_facts(tmp_path, monkeypatch,
                                                   capsys):
     _web_research(monkeypatch, tmp_path, lambda: "no idea")
     researcher.run_researcher()
-    assert context["research"][1] == "BRIEF"
+    assert STORY["research"][1] == "BRIEF"
     assert "could not plan web claims" in capsys.readouterr().out
 
 
@@ -218,7 +218,7 @@ def test_claims_that_are_not_objects_or_strings_are_ignored(tmp_path,
     _web_research(monkeypatch, tmp_path, lambda: json.dumps(
         [None, 7, {"claim": "", "query": ""}, {"query": "only a query"}]))
     researcher.run_researcher()          # nothing usable -> no search at all
-    assert context["research"][1] == "BRIEF"
+    assert STORY["research"][1] == "BRIEF"
 
 
 # --------------------------------------------------------------------- editor
@@ -229,11 +229,11 @@ BIBLE = {"title": "T", "characters": [], "constraints": []}
 def _editor(monkeypatch, tmp_path, drafts, prose, book="", agents="",
             reviewer=None):
     out = _config(tmp_path, book, agents, reviewer_on=reviewer is not None)
-    update_context("bible", BIBLE)
-    update_context("title", "T")
-    update_context("chapters", [c for c in CHAPTERS if c["number"] in drafts])
-    update_context("drafts", drafts)
-    update_context("chronology", {})
+    set_story("bible", BIBLE)
+    set_story("title", "T")
+    set_story("chapters", [c for c in CHAPTERS if c["number"] in drafts])
+    set_story("drafts", drafts)
+    set_story("chronology", {})
     monkeypatch.setattr(editor, "generate_prose", prose)
     if reviewer:
         monkeypatch.setattr(editor, "run_reviewer", reviewer)
@@ -260,7 +260,7 @@ def test_reviewer_findings_are_fixed_and_rereviewed(tmp_path, monkeypatch):
             reviewer=lambda *a: next(reviews))
     editor.run_editor()
     assert "REVIEWER NOTES" in revise_prompts[0] and "wrong day" in revise_prompts[0]
-    assert "fixed" in context["final"][1]
+    assert "fixed" in STORY["final"][1]
 
 
 
@@ -294,7 +294,7 @@ def test_a_length_expansion_is_rereviewed_even_after_a_pass(tmp_path,
             book="  extra_length_rounds: 0\n")
     editor.run_editor()
     assert len(calls) == 2 and "growna" in calls[1]
-    assert context["final"][1] == _words(50)        # contradiction rejected
+    assert STORY["final"][1] == _words(50)        # contradiction rejected
 
 
 def test_a_small_lint_fix_is_not_rereviewed(tmp_path, monkeypatch):
@@ -307,10 +307,10 @@ def test_a_small_lint_fix_is_not_rereviewed(tmp_path, monkeypatch):
 
     _editor(monkeypatch, tmp_path, {1: _words(120) + " ominous"}, prose,
             reviewer=review)
-    update_context("bible", {**BIBLE, "constraints": ['Never "ominous".']})
+    set_story("bible", {**BIBLE, "constraints": ['Never "ominous".']})
     editor.run_editor()
     assert len(calls) == 1
-    assert "ominous" not in context["final"][1]
+    assert "ominous" not in STORY["final"][1]
 
 
 def test_fixing_a_continuity_error_outweighs_two_banned_words(
@@ -326,10 +326,10 @@ def test_fixing_a_continuity_error_outweighs_two_banned_words(
 
     _editor(monkeypatch, tmp_path, {1: _words(120)}, prose, reviewer=review,
             book="  revision_rounds: 1\n")
-    update_context("bible", {**BIBLE, "constraints": ['Never "ominous".',
+    set_story("bible", {**BIBLE, "constraints": ['Never "ominous".',
                                                     'Never "foo".']})
     editor.run_editor()
-    assert context["final"][1].endswith("ominous foo")
+    assert STORY["final"][1].endswith("ominous foo")
     diff = (tmp_path / "out" / "interim" / "diff_chapter_01.md").read_text()
     assert "revision accepted" in diff and "severity 5 -> 2" in diff
 
@@ -348,7 +348,7 @@ def test_an_unreadable_rereview_does_not_count_as_a_fix(tmp_path,
     editor.run_editor()
     diff = (tmp_path / "out" / "interim" / "diff_chapter_01.md").read_text()
     assert "earlier issues assumed unfixed" in diff
-    assert context["unreviewed"] == {1}
+    assert STORY["unreviewed"] == {1}
     assert "finished WITHOUT a readable review" in capsys.readouterr().out
     report = (tmp_path / "out" / "interim" / "lint_report.md").read_text()
     assert "## Not reviewed" in report
@@ -359,7 +359,7 @@ def test_an_unreadable_first_review_is_reported(tmp_path, monkeypatch):
     _editor(monkeypatch, tmp_path, {1: _words(120)},
             lambda p, **k: _echo_polish(p), reviewer=review)
     editor.run_editor()
-    assert context["unreviewed"] == {1}
+    assert STORY["unreviewed"] == {1}
     diff = (tmp_path / "out" / "interim" / "diff_chapter_01.md").read_text()
     assert "reviewer: unreviewed - the reply could not be read" in diff
 
@@ -384,7 +384,7 @@ def test_a_short_chapter_is_expanded_with_the_length_instructions(
     editor.run_editor()
     assert "LENGTH - HARD REQUIREMENT" in seen[0]
     assert "the draft is 50 words; the minimum is" in seen[0]
-    assert len(context["final"][1].split()) > 100
+    assert len(STORY["final"][1].split()) > 100
 
 
 def test_expansion_stops_when_it_stalls(tmp_path, monkeypatch, capsys):
@@ -405,7 +405,7 @@ def test_expansion_stops_when_it_stalls(tmp_path, monkeypatch, capsys):
     editor.run_editor()
     assert "expansion stalled at 170 words" in capsys.readouterr().out
     assert len(revisions) == 2                       # not all 4 allowed rounds
-    assert set(context["final"]) == {1}
+    assert set(STORY["final"]) == {1}
 
 
 def test_a_polish_failure_keeps_the_revised_draft(tmp_path, monkeypatch,
@@ -416,7 +416,7 @@ def test_a_polish_failure_keeps_the_revised_draft(tmp_path, monkeypatch,
     _editor(monkeypatch, tmp_path, {1: _words(120)}, prose)
     editor.run_editor()
     assert "Error editing chapter 1: model fell over" in capsys.readouterr().out
-    assert context["final"][1] == _words(120)
+    assert STORY["final"][1] == _words(120)
 
 
 def test_a_polish_that_drops_the_heading_gets_it_back(tmp_path, monkeypatch):
@@ -425,7 +425,7 @@ def test_a_polish_that_drops_the_heading_gets_it_back(tmp_path, monkeypatch):
 
     _editor(monkeypatch, tmp_path, {1: _words(120)}, prose)
     editor.run_editor()
-    assert context["final"][1] == _words(120)
+    assert STORY["final"][1] == _words(120)
     edited = tmp_path / "out" / "interim" / "edited_chapter_01.md"
     assert edited.read_text().startswith("## Chapter 1: Ch1\n\n")
 
@@ -439,7 +439,7 @@ def test_a_polish_with_a_reworded_heading_keeps_only_its_body(tmp_path,
 
     _editor(monkeypatch, tmp_path, {1: _words(120)}, prose)
     editor.run_editor()
-    assert context["final"][1] == _words(120)
+    assert STORY["final"][1] == _words(120)
     book = (tmp_path / "out" / "draft.md").read_text()
     assert "## Chapter 1: Ch1\n\n" in book and "Chapter One" not in book
 
@@ -475,8 +475,8 @@ def test_chapters_without_a_draft_or_already_edited_are_skipped(
         tmp_path, monkeypatch, capsys):
     _editor(monkeypatch, tmp_path, {1: _words(120)},
             lambda p, **k: pytest.fail("no LLM call expected"))
-    update_context("chapters", CHAPTERS)             # chapter 2 has no draft
-    update_context("final", {1: "edited"})
+    set_story("chapters", CHAPTERS)             # chapter 2 has no draft
+    set_story("final", {1: "edited"})
     editor.run_editor()
     text = capsys.readouterr().out
     assert "Chapter 1: already edited" in text and "No draft for chapter 2" in text
@@ -486,22 +486,22 @@ def test_chapters_without_a_draft_or_already_edited_are_skipped(
 
 def test_overwrite_false_numbers_the_books(tmp_path):
     out = _config(tmp_path, output_extra="  overwrite: false\n")
-    update_context("title", "T")
+    set_story("title", "T")
     for expected in ("draft.md", "draft-1.md", "draft-2.md"):
         editor.save_book({1: "text"})
         assert (out / expected).exists()
-        assert context["output_path"].endswith(expected)
+        assert STORY["output_path"].endswith(expected)
 
 
 def test_reuse_path_keeps_rewriting_the_same_numbered_book(tmp_path):
     out = _config(tmp_path, output_extra="  overwrite: false\n")
-    update_context("title", "T")
+    set_story("title", "T")
     editor.save_book({1: "text"})                    # draft.md
     editor.save_book({1: "text"})                    # draft-1.md
-    first = context["output_path"]
+    first = STORY["output_path"]
     editor.save_book({1: "text", 2: "more"}, reuse_path=True)
     editor.save_book({1: "text", 2: "more"}, reuse_path=True)
-    assert context["output_path"] == first
+    assert STORY["output_path"] == first
     assert sorted(p.name for p in out.glob("draft*.md")) == [
         "draft-1.md", "draft.md"]
     assert "more" in Path(first).read_text()
@@ -520,7 +520,7 @@ def test_review_as_you_go_with_overwrite_off_writes_one_book(
     load_config(cfg_path)
     for n in (1, 2):
         editor.run_editor(only=n)
-    editor.finalize_book(context["final"], reuse_path=True)
+    editor.finalize_book(STORY["final"], reuse_path=True)
     books = sorted(p.name for p in out.glob("draft*.md"))
     assert books == ["draft.md"]
     assert "c2" in (out / "draft.md").read_text()
@@ -529,7 +529,7 @@ def test_review_as_you_go_with_overwrite_off_writes_one_book(
 def test_a_book_that_cannot_be_written_is_returned_not_lost(
         tmp_path, monkeypatch, capsys):
     _config(tmp_path)
-    update_context("title", "T")
+    set_story("title", "T")
 
     def refuse(path, text):
         raise OSError("disk full")
@@ -543,7 +543,7 @@ def test_a_book_that_cannot_be_written_is_returned_not_lost(
 def test_a_story_bible_that_cannot_be_written_only_warns(tmp_path,
                                                          monkeypatch, capsys):
     _config(tmp_path)
-    update_context("title", "T")
+    set_story("title", "T")
     real = editor.atomic_write_text
 
     def only_the_book(path, text):
@@ -558,9 +558,9 @@ def test_a_story_bible_that_cannot_be_written_only_warns(tmp_path,
 
 def test_the_lint_report_flags_short_chapters_and_findings(tmp_path):
     out = _config(tmp_path)
-    update_context("bible", {"title": "T", "characters": [],
+    set_story("bible", {"title": "T", "characters": [],
                              "constraints": ['Never "ominous".']})
-    update_context("chapters", CHAPTERS)
+    set_story("chapters", CHAPTERS)
     editor._write_lint_report({1: f"{_words(120)} ominous",
                                2: _words(30)})
     report = (out / "interim" / "lint_report.md").read_text()
@@ -626,16 +626,16 @@ def test_hydrating_resume_state_fills_the_context(tmp_path):
              "summaries": {1: "sum"}, "chronology": {1: {"x": 1}},
              "final": {1: "body"}}
     pipeline._hydrate_resume(state)
-    assert context["title"] == "T" and context["seed"] == "S"
-    assert context["final"] == {1: "body"}
-    assert context["summaries"] == {1: "sum"}
+    assert STORY["title"] == "T" and STORY["seed"] == "S"
+    assert STORY["final"] == {1: "body"}
+    assert STORY["summaries"] == {1: "sum"}
 
 
 def _stub_pipeline(monkeypatch, **replace):
     stubs = dict(run_seed_review=lambda seed, *a, **k: {"seed": seed, "chapters": None, "words_per_chapter": 100,
                                     "clarifications": [], "stop": False},
                  run_architect=lambda *a: None,
-                 run_planner=lambda **k: update_context(
+                 run_planner=lambda **k: set_story(
                      "chapters", CHAPTERS) or CHAPTERS,
                  run_researcher=lambda: None, run_writer=lambda **k: None,
                  run_editor=lambda **k: None)
@@ -648,10 +648,10 @@ def test_with_the_editor_disabled_the_raw_drafts_are_saved(tmp_path,
                                                            monkeypatch):
     out = _config(tmp_path, agents="  editor:\n    enabled: false\n")
     _stub_pipeline(monkeypatch)
-    update_context("title", "T")
+    set_story("title", "T")
 
     def write_drafts(**kwargs):
-        update_context("drafts", {1: "first draft", 2: "second draft"})
+        set_story("drafts", {1: "first draft", 2: "second draft"})
 
     monkeypatch.setattr(pipeline, "run_writer", write_drafts)
     assert pipeline.run_pipeline("seed") == 0
@@ -815,8 +815,8 @@ def test_a_stage_never_swallows_a_state_write_failure(tmp_path, monkeypatch):
     save."""
     from shared.resume import StateWriteError
     _config(tmp_path)
-    update_context("chapters", CHAPTERS[:1])
-    update_context("bible", BIBLE)
+    set_story("chapters", CHAPTERS[:1])
+    set_story("bible", BIBLE)
     monkeypatch.setattr(researcher, "generate_with_wait",
                         lambda *a, **k: "a brief")
 
@@ -856,7 +856,7 @@ def test_a_stage_already_in_the_saved_run_is_announced_not_rerun(
     _config(tmp_path, agents="  researcher:\n    enabled: false\n")
     _stub_pipeline(monkeypatch,
                    run_architect=lambda *a: pytest.fail("must not run"))
-    update_context("bible", {"title": "T"})
+    set_story("bible", {"title": "T"})
     phases = []
     pipeline._run_stages(pipeline.Run("seed", resuming=True), phases)
     assert "Story bible loaded from the saved run; skipping." in \

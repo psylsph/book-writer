@@ -24,7 +24,7 @@ from agents.writer import refresh_state, run_writer
 from agents.editor import finalize_book, run_editor, save_book
 from shared import envfile, llm_client, runlog, web_search, webanswer
 from shared.llm_utils import strip_chapter_length
-from shared.context import get_context, reset_context, update_context
+from shared.story import get_story, reset_story, set_story
 from shared.llm_client import EndpointUnavailable, agent_enabled, \
     get_config, load_config, preflight
 from shared.output import (ArchiveError, archive_previous_run, interim_dir,
@@ -145,31 +145,31 @@ def apply_plan(plan):
 
 
 def _hydrate_resume(state):
-    """Push loaded resume state into the shared context."""
+    """Push loaded resume state into the run's story record."""
     if (state.get("seed") or {}).get("current"):
-        update_context("seed", state["seed"]["current"])
+        set_story("seed", state["seed"]["current"])
     if state["bible"]:
-        update_context("bible", state["bible"])
-        update_context("title", state["bible"].get("title", ""))
-        update_context("seed", state["bible"].get("seed", ""))
+        set_story("bible", state["bible"])
+        set_story("title", state["bible"].get("title", ""))
+        set_story("seed", state["bible"].get("seed", ""))
     if state["chapters"]:
-        update_context("chapters", state["chapters"])
+        set_story("chapters", state["chapters"])
     if state["research"]:
-        update_context("research", state["research"])
+        set_story("research", state["research"])
     if state["drafts"]:
-        update_context("drafts", state["drafts"])
+        set_story("drafts", state["drafts"])
     if state["summaries"] is not None:
-        update_context("summaries", state["summaries"])
+        set_story("summaries", state["summaries"])
     if state["chronology"] is not None:
-        update_context("chronology", state["chronology"])
+        set_story("chronology", state["chronology"])
     if state["final"]:
-        update_context("final", dict(state["final"]))
+        set_story("final", dict(state["final"]))
     if state.get("unreviewed"):
-        update_context("unreviewed", set(state["unreviewed"]))
+        set_story("unreviewed", set(state["unreviewed"]))
     if state.get("unrefreshed"):
-        update_context("unrefreshed", set(state["unrefreshed"]))
+        set_story("unrefreshed", set(state["unrefreshed"]))
     if state.get("chapter_notes"):
-        update_context("chapter_notes", dict(state["chapter_notes"]))
+        set_story("chapter_notes", dict(state["chapter_notes"]))
 
 
 @contextlib.contextmanager
@@ -219,16 +219,16 @@ def run_interleaved():
     the edit and the refresh is caught on resume instead of leaving every
     later chapter built on the draft's facts.
     """
-    chapters = get_context("chapters")
+    chapters = get_story("chapters")
     for chapter in chapters:
         n = chapter["number"]
         print(f"\n[PIPELINE] Chapter {n}/{len(chapters)}: {chapter['title']}")
         run_writer(only=n)
-        if not (get_context("drafts") or {}).get(n):
+        if not (get_story("drafts") or {}).get(n):
             print(f"[PIPELINE] Chapter {n} could not be drafted; stopping. "
                   "Rerun the same command to resume from this chapter.")
             return
-        if n in (get_context("final") or {}):
+        if n in (get_story("final") or {}):
             if n in _unrefreshed():
                 # edited in an earlier run that stopped before the refresh
                 print(f"[PIPELINE] Chapter {n} was edited but its story "
@@ -238,18 +238,18 @@ def run_interleaved():
         _mark_unrefreshed(n, True)
         run_editor(only=n)
         _refresh(n)
-    finalize_book(get_context("final"), reuse_path=True)
+    finalize_book(get_story("final"), reuse_path=True)
 
 
 def _unrefreshed():
-    return get_context("unrefreshed") or set()
+    return get_story("unrefreshed") or set()
 
 
 def _mark_unrefreshed(n, pending):
     """Add/remove chapter n in the saved 'unrefreshed' set."""
     numbers = set(_unrefreshed())
     (numbers.add if pending else numbers.discard)(n)
-    update_context("unrefreshed", numbers)
+    set_story("unrefreshed", numbers)
     save_state("unrefreshed", sorted(numbers))
 
 
@@ -260,12 +260,12 @@ def _refresh(n):
         _mark_unrefreshed(n, False)
 
 
-def _incomplete_chapters(context, editor_on):
+def _incomplete_chapters(story, editor_on):
     """Numbers of planned chapters that never reached their final form
     (edited when the editor is on, drafted otherwise)."""
-    done = (set(context.get("final") or ())
-            if editor_on else set(context.get("drafts") or ()))
-    return [c["number"] for c in context.get("chapters") or []
+    done = (set(story.get("final") or ())
+            if editor_on else set(story.get("drafts") or ()))
+    return [c["number"] for c in story.get("chapters") or []
             if c["number"] not in done]
 
 
@@ -355,16 +355,16 @@ def _editor(run):
 
 
 def _save_drafts(run):
-    save_book(get_context("drafts"))
+    save_book(get_story("drafts"))
 
 
 STAGES = (
     # on resume only when the run stopped during the seed review (no bible)
     Stage("seed review", "Step 0: Seed review (length and gaps)",
           _seed_review,
-          wanted=lambda run: not run.resuming or not get_context("bible")),
+          wanted=lambda run: not run.resuming or not get_story("bible")),
     Stage("architect", "Step 1: Architect (story bible)", _architect,
-          done=lambda run: (run.resuming and get_context("bible")
+          done=lambda run: (run.resuming and get_story("bible")
                             and "Story bible loaded from the saved run; "
                                 "skipping.") or None),
     Stage("planner", "Step 2: Planner (chapter outline)", _planner),
@@ -409,17 +409,17 @@ def _run_stages(run, phases):
 def _summary(started):
     """Print the end-of-run summary. Returns the exit code (1 when chapters
     are unfinished)."""
-    context = get_context()
-    incomplete = _incomplete_chapters(context, agent_enabled("editor"))
+    story = get_story()
+    incomplete = _incomplete_chapters(story, agent_enabled("editor"))
     print("\n" + "=" * 60)
     print("PIPELINE COMPLETE!" if not incomplete else "PIPELINE INCOMPLETE")
     print("=" * 60)
-    print(f"Title: {context['title']}")
-    print(f"Chapters: {len(context['chapters'])}")
-    print(f"Drafted: {len(context['drafts'])} | "
-          f"Edited: {len(context['final'])}")
+    print(f"Title: {story['title']}")
+    print(f"Chapters: {len(story['chapters'])}")
+    print(f"Drafted: {len(story['drafts'])} | "
+          f"Edited: {len(story['final'])}")
     print(f"Total time: {(time.time() - started) / 60:.1f} minutes")
-    unreviewed = sorted(context.get("unreviewed") or ())
+    unreviewed = sorted(story.get("unreviewed") or ())
     if unreviewed:
         print("Not reviewed (the reviewer's reply could not be read): "
               "chapters " + ", ".join(str(n) for n in unreviewed)
@@ -452,7 +452,7 @@ def run_pipeline(seed_text, num_chapters=None, resuming=False, state=None,
     started = time.time()
     llm_client.reset_stats()
     phases = []
-    reset_context()
+    reset_story()
     run = Run(seed_text, num_chapters, resuming, plan_only)
     if resuming:
         state = state or load_state()
@@ -592,8 +592,8 @@ def _run(args, cfg, num_chapters):
     exit_code = run_pipeline(seed_text, num_chapters=num_chapters,
                              resuming=resuming, state=state,
                              plan_only=args.plan_only)
-    if exit_code == 0 and get_context("output_path"):
-        out = get_context("output_path")
+    if exit_code == 0 and get_story("output_path"):
+        out = get_story("output_path")
         print(f"\n\u2713 Book written! Check {out}")
     sys.exit(exit_code or 0)
 

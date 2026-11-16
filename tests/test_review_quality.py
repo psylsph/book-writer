@@ -8,7 +8,7 @@ from agents import editor, reviewer
 from shared.consistency import (lint_book, phrase_repeats,
                                 repeated_phrase_finding,
                                 repeated_phrases_in_book)
-from shared.context import context, reset_context, update_context
+from shared.story import STORY, reset_story, set_story
 from shared.llm_client import EndpointUnavailable, load_config
 from shared.prompts import unfence
 
@@ -27,11 +27,11 @@ def _config(tmp_path, book=""):
                     f"book:\n  words_per_chapter: 100\n{book}"
                     "agents:\n  reviewer:\n    enabled: false\n")
     load_config(path)
-    reset_context()
-    update_context("bible", BIBLE)
-    update_context("chapters", CHAPTERS)
-    update_context("chronology", {})
-    update_context("research", {1: "- Plot beat: Aria finds the hidden letter."})
+    reset_story()
+    set_story("bible", BIBLE)
+    set_story("chapters", CHAPTERS)
+    set_story("chronology", {})
+    set_story("research", {1: "- Plot beat: Aria finds the hidden letter."})
 
 
 def _words(n, prefix="alpha"):
@@ -197,7 +197,7 @@ def _editor_run(tmp_path, monkeypatch, book="", revise=None, only=3):
     drafts = {1: EARLIER[0] + " " + _words(60, "beta"),
               2: EARLIER[1] + " " + _words(60, "gamma"),
               3: f"Chapter three: {PHRASE}. " + _words(110, "delta")}
-    update_context("drafts", drafts)
+    set_story("drafts", drafts)
     prompts = []
 
     def prose(prompt, **kwargs):
@@ -217,7 +217,7 @@ def test_editor_asks_for_a_reused_phrase_to_be_reworded(tmp_path, monkeypatch):
     assert "already used 2+ times in earlier chapters" in revise
     assert "shiver ran down her spine" in revise
     assert "For repeated_phrase findings, reword" in revise
-    assert PHRASE not in context["final"][3]
+    assert PHRASE not in STORY["final"][3]
 
 
 def test_repetition_lint_can_be_switched_off(tmp_path, monkeypatch):

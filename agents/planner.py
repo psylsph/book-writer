@@ -11,7 +11,7 @@ import json
 import re
 
 from shared import prompts
-from shared.context import context, update_context
+from shared.story import STORY, set_story
 from shared.llm_utils import extract_json, strip_code_fences
 from shared.llm_client import AbortRun, generate_with_wait, \
     get_config
@@ -228,7 +228,7 @@ def _plan_with_llm(bible, target, fixed_prefix=None):
               "story naturally, up to the story's conclusion.\n\n"
         )
 
-    seed = str(bible.get("seed") or context.get("seed") or "")
+    seed = str(bible.get("seed") or STORY.get("seed") or "")
     seed_block = (f"THE AUTHOR'S BRIEF (the story material to distribute across "
                   f"the chapters):\n{prompts.fence(seed[:16000], 'brief')}\n\n"
                   if seed else "")
@@ -367,12 +367,12 @@ def run_planner(num_chapters=None):
     """
     print("[PLANNER] Planning chapter outline...")
     cfg = get_config()
-    bible = context.get("bible") or {}
-    seed_outline = extract_seed_outline(context.get("seed", ""))
+    bible = STORY.get("bible") or {}
+    seed_outline = extract_seed_outline(STORY.get("seed", ""))
 
     # Resuming: keep the saved outline so chapter numbers keep matching the
     # drafts on disk (a fresh LLM suggestion/outline could differ).
-    existing = context.get("chapters")
+    existing = STORY.get("chapters")
     if existing and num_chapters in (None, len(existing)):
         print(f"[PLANNER] Reusing the saved outline ({len(existing)} chapters).")
         return existing
@@ -382,7 +382,7 @@ def run_planner(num_chapters=None):
         if seed_outline:
             target = len(seed_outline)
         elif cfg["book"]["auto_chapters"]:
-            target = suggest_chapter_count(context.get("seed", ""), bible)
+            target = suggest_chapter_count(STORY.get("seed", ""), bible)
         else:
             target = cfg["book"]["num_chapters"]
 
@@ -418,7 +418,7 @@ def run_planner(num_chapters=None):
             print(f"[PLANNER] Error: {e}")
             return []
 
-    update_context("chapters", chapters)
+    set_story("chapters", chapters)
     save_state("outline", chapters)
     save_interim("outline.md", _outline_markdown(chapters))
     print(f"[PLANNER] Outline ready ({len(chapters)} chapters):")

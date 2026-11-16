@@ -44,7 +44,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 from agents import writer  # noqa: E402
 from shared import llm_client, prompts  # noqa: E402
-from shared.context import reset_context, update_context  # noqa: E402
+from shared.story import reset_story, set_story  # noqa: E402
 from shared.story_state import normalize_state  # noqa: E402
 from tools import extractor_prompts  # noqa: E402
 from tools.extractor_cases import BIBLE_CHARACTERS, CASES  # noqa: E402
@@ -168,13 +168,15 @@ def configure(url, model, opts, json_mode):
     extractor = cfg.setdefault("agents", {}).setdefault("extractor", {})
     for key in ("model", "reasoning_effort", "enable_thinking", "temperature"):
         extractor.pop(key, None)
+    if opts.get("reasoning_effort"):
+        extractor["reasoning_effort"] = opts["reasoning_effort"]
     if opts.get("no_thinking"):
         extractor["reasoning_effort"] = ""          # no effort; thinking off
         extractor["enable_thinking"] = False
     if opts.get("temperature") is not None:
         extractor["temperature"] = opts["temperature"]
-    reset_context()
-    update_context("bible", {"characters": BIBLE_CHARACTERS})
+    reset_story()
+    set_story("bible", {"characters": BIBLE_CHARACTERS})
     llm_client.reset_stats()
 
 
@@ -205,7 +207,7 @@ def run_target(label, url, model, cases, opts, json_mode=False, runs=1,
         for case in cases:
             for _ in range(runs):
                 total += 1
-                update_context("chronology", _prior_chronology(case))
+                set_story("chronology", _prior_chronology(case))
                 result = writer._summarize_and_extract(
                     case["number"], case["title"], case["text"],
                     fallback=False)
@@ -312,12 +314,14 @@ def build_options(args):
     """Per-label options from the command line."""
     temps = _label_values(args.temperature, float)
     systems = _label_values(args.system)
+    efforts = _label_values(args.reasoning_effort)
     options = {}
     for label, _, _ in args.target:
         options[label] = {
             "no_thinking": label in args.no_thinking,
             "checks": label not in args.no_checks,
             "temperature": temps.get(label),
+            "reasoning_effort": efforts.get(label),
             "system": systems.get(label),
         }
     for spec in systems.values():             # fail early, with a clear message
@@ -326,7 +330,8 @@ def build_options(args):
         except (KeyError, OSError) as e:
             raise SystemExit(f"--system: {e}")
     known = {label for label, _, _ in args.target}
-    for name, mapping in (("--temperature", temps), ("--system", systems)):
+    for name, mapping in (("--temperature", temps), ("--system", systems),
+                          ("--reasoning-effort", efforts)):
         for label in mapping:
             if label not in known:
                 raise SystemExit(f"{name} names unknown target '{label}'")
@@ -349,6 +354,10 @@ def main(argv=None):
                         help="thinking off for this target: no reasoning "
                              "effort, enable_thinking=false (plain models "
                              "ignore the flag)")
+    parser.add_argument("--reasoning-effort", action="append", default=[],
+                        metavar="LABEL=EFFORT",
+                        help="reasoning effort for this target (low, medium, xhigh); "
+                             "default: the agent's built-in default")
     parser.add_argument("--temperature", action="append", default=[],
                         metavar="LABEL=T", help="extractor temperature")
     parser.add_argument("--system", action="append", default=[],

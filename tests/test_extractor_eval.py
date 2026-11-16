@@ -411,3 +411,16 @@ def test_the_table_is_followed_by_where_the_errors_are(tmp_path, stub_servers,
     assert r["liar"]["problem_cases"][5].startswith("case 5 'Ropes'")
     good = out.split("  good\n")[1]
     assert good.strip().startswith("none")                  # nothing to report
+
+
+def test_a_reasoning_effort_reaches_the_extractor(tmp_path):
+    from shared import llm_client
+    cfg = tmp_path / "config.yaml"
+    cfg.write_text("llm:\n  reasoning_effort: xhigh\n")
+    for effort, sent in ((None, "low"), ("xhigh", "xhigh")):   # low: built-in
+        llm_client.load_config(str(cfg))
+        ev.configure("http://h:1", "m", {"reasoning_effort": effort}, False)
+        c = llm_client.get_config()
+        kwargs = llm_client._template_kwargs(c["llm"], c["agents"]["extractor"],
+                                             "extractor")
+        assert kwargs == {"reasoning_effort": sent}

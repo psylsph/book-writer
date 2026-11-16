@@ -4,7 +4,7 @@ import pytest
 
 from shared.llm_utils import (clean_llm_text, extract_json, extract_seed_characters,
                               extract_seed_extras, render_bible, split_sections)
-from shared.context import reset_context, get_context
+from shared.story import reset_story, get_story
 from agents.planner import extract_seed_outline, _fallback_line_parse
 
 
@@ -321,15 +321,15 @@ def test_extract_seed_characters_joins_wrapped_descriptions():
     assert chars[1]["description"].endswith("in her body.")
 
 
-# ------------------------------------------------------------------- context
+# ----------------------------------------------------------- story record
 
-def test_reset_context_mutates_in_place():
-    import shared.context as ctx
-    ctx.context["title"] = "Changed"
-    reset_context()
-    assert ctx.context["title"] == ""
-    assert get_context("title") == ""
-    assert get_context()["chapters"] == []
+def test_reset_story_mutates_in_place():
+    import shared.story as story
+    story.STORY["title"] = "Changed"
+    reset_story()
+    assert story.STORY["title"] == ""
+    assert get_story("title") == ""
+    assert get_story()["chapters"] == []
 
 
 # A seed that marks its sections with bold lines instead of headings, after a

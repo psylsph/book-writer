@@ -4,7 +4,7 @@ import json
 
 import main as pipeline
 from agents import editor, writer
-from shared.context import context, reset_context, update_context
+from shared.story import STORY, reset_story, set_story
 from shared.llm_client import load_config
 from shared.story_state import minimal_state
 from shared.prompts import unfence
@@ -24,10 +24,10 @@ def _config(tmp_path, book="", editor_on=True):
         f"agents:\n  reviewer:\n    enabled: false\n"
         f"  editor:\n    enabled: {str(editor_on).lower()}\n")
     load_config(path)
-    reset_context()
-    update_context("bible", BIBLE)
-    update_context("chapters", CHAPTERS)
-    update_context("title", "T")
+    reset_story()
+    set_story("bible", BIBLE)
+    set_story("chapters", CHAPTERS)
+    set_story("title", "T")
 
 
 def _words(n, prefix="alpha"):
@@ -60,11 +60,11 @@ def _stub_loop(monkeypatch, drafted=(1, 2, 3)):
     def write(only=None):
         events.append(("write", only))
         if only in drafted:
-            context["drafts"][only] = "draft"
+            STORY["drafts"][only] = "draft"
 
     def edit(only=None):
         events.append(("edit", only))
-        context["final"][only] = "edited"
+        STORY["final"][only] = "edited"
 
     monkeypatch.setattr(pipeline, "run_writer", write)
     monkeypatch.setattr(pipeline, "run_editor", edit)
@@ -98,7 +98,7 @@ def test_loop_stops_at_a_chapter_that_cannot_be_drafted(tmp_path, monkeypatch):
 def test_already_edited_chapters_are_not_edited_or_refreshed_again(
         tmp_path, monkeypatch):
     _config(tmp_path)
-    update_context("final", {1: "edited"})
+    set_story("final", {1: "edited"})
     events = _stub_loop(monkeypatch)
     pipeline.run_interleaved()
     assert ("edit", 1) not in events and ("refresh", 1) not in events
@@ -125,11 +125,11 @@ def test_a_crash_between_edit_and_refresh_is_refreshed_on_resume(
     assert load_state()["unrefreshed"] == {1}       # the mark is on disk
 
     # the rerun: final has chapter 1, the mark says its state is stale
-    reset_context()
-    update_context("bible", BIBLE)
-    update_context("chapters", CHAPTERS)
+    reset_story()
+    set_story("bible", BIBLE)
+    set_story("chapters", CHAPTERS)
     pipeline._hydrate_resume(load_state())
-    update_context("final", {1: "edited"})
+    set_story("final", {1: "edited"})
     events.clear()
     monkeypatch.setattr(pipeline, "refresh_state",
                         lambda n: events.append(("refresh", n)) or True)
@@ -155,20 +155,20 @@ def test_writer_only_writes_the_requested_chapter(tmp_path, monkeypatch):
     monkeypatch.setattr(writer, "generate_with_wait", lambda p, **k: json.dumps(
         {"summary": "S", "events": []}))
     writer.run_writer(only=2)
-    assert sorted(context["drafts"]) == [2]
+    assert sorted(STORY["drafts"]) == [2]
 
 
 def test_editor_only_edits_the_requested_chapter(tmp_path, monkeypatch):
     _config(tmp_path)
-    update_context("drafts", {1: _words(120), 2: _words(120)})
-    update_context("chronology", {})
+    set_story("drafts", {1: _words(120), 2: _words(120)})
+    set_story("chronology", {})
 
     def prose(prompt, **kwargs):
         return unfence(prompt, "chapter")
 
     monkeypatch.setattr(editor, "generate_prose", prose)
     editor.run_editor(only=2)
-    assert set(context["final"]) == {2}
+    assert set(STORY["final"]) == {2}
     assert (tmp_path / "out" / "draft.md").exists()      # partial book on disk
 
 
@@ -182,14 +182,14 @@ def test_refresh_state_uses_the_edited_text(tmp_path, monkeypatch):
                            "present": ["Aria"], "events": []})
 
     monkeypatch.setattr(writer, "generate_with_wait", extract)
-    update_context("drafts", {1: "ORIGINAL DRAFT"})
-    update_context("summaries", {1: "OLD"})
-    update_context("chronology", {1: minimal_state(1, "Ch1", "OLD")})
-    update_context("final", {1: "EDITED TEXT"})
+    set_story("drafts", {1: "ORIGINAL DRAFT"})
+    set_story("summaries", {1: "OLD"})
+    set_story("chronology", {1: minimal_state(1, "Ch1", "OLD")})
+    set_story("final", {1: "EDITED TEXT"})
     writer.refresh_state(1)
     assert "EDITED TEXT" in seen["prompt"] and "ORIGINAL" not in seen["prompt"]
-    assert context["summaries"][1] == "NEW"
-    assert context["chronology"][1]["location"] == "inn"
+    assert STORY["summaries"][1] == "NEW"
+    assert STORY["chronology"][1]["location"] == "inn"
 
 
 def test_refresh_state_keeps_the_old_state_when_extraction_fails(
@@ -197,13 +197,13 @@ def test_refresh_state_keeps_the_old_state_when_extraction_fails(
     _config(tmp_path)
     monkeypatch.setattr(writer, "generate_with_wait", lambda p, **k: "garbage")
     good = {**minimal_state(1, "Ch1", "GOOD"), "location": "kept"}
-    update_context("drafts", {1: "draft"})
-    update_context("summaries", {1: "GOOD"})
-    update_context("chronology", {1: good})
-    update_context("final", {1: "EDITED"})
+    set_story("drafts", {1: "draft"})
+    set_story("summaries", {1: "GOOD"})
+    set_story("chronology", {1: good})
+    set_story("final", {1: "EDITED"})
     writer.refresh_state(1)
-    assert context["summaries"][1] == "GOOD"
-    assert context["chronology"][1]["location"] == "kept"
+    assert STORY["summaries"][1] == "GOOD"
+    assert STORY["chronology"][1]["location"] == "kept"
 
 
 # --------------------------------------------- the whole loop, real agent code
@@ -239,7 +239,7 @@ def test_next_chapter_is_written_from_the_edited_chapter(tmp_path, monkeypatch):
     second = writer_prompts[1]
     assert "EDITED=True" in second          # facts re-extracted after editing
     assert "EDITEDMARK" in second           # ending taken from the edited text
-    assert sorted(context["final"]) == [1, 2, 3]
+    assert sorted(STORY["final"]) == [1, 2, 3]
     book = (tmp_path / "out" / "draft.md").read_text()
     assert book.count("EDITEDMARK") == 3
     assert [c for c in range(1, 4) if f"## Chapter {c}:" in book] == [1, 2, 3]
