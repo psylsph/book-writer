@@ -86,6 +86,7 @@ multi-agent-book-writer/
 │   ├── researcher.py       # per-chapter lore briefs
 │   ├── writer.py           # continuity-aware drafts + story state
 │   ├── reviewer.py         # continuity review vs story state (JSON verdict)
+│   ├── knowledge_check.py  # who acts on a secret nobody told them (a reviewer check)
 │   └── editor.py           # lint -> review -> revise loop, polish, save
 ├── shared/
 │   ├── story.py            # the run's story record (in-place reset)
@@ -895,7 +896,7 @@ default with a `[CONFIG]` warning instead of crashing the run later. Keys:
 
 - **book**: `auto_chapters`/`min_chapters`/`max_chapters` (LLM-suggested chapter count and its clamp), `num_chapters` (fallback), `words_per_chapter` (target length), `word_count_tolerance` (enforced minimum as a fraction of the target — short chapters are lint findings and get sent back for substantive expansion, never padding), `extra_length_rounds` (additional revision rounds granted for length only, while each round still adds ≥15%), `max_length_ratio` (chapters over this multiple of the target get one tightening pass; 0 = never; see [Review quality](#review-quality)), `revision_rounds` (review/revise passes per chapter; 0 disables revision), `summary_window` (how many recent chapter summaries the writer/reviewer see in full; older ones are cut to a sentence), `review_as_you_go` (see [Review as you go](#review-as-you-go)), `review_checks` and `repetition_lint` (see [Review quality](#review-quality)), `name_lint_ignore` (words the name-typo lint must never flag), `extraction_checks` (see [Review quality](#review-quality)), `style` (deterministic style lint: banned stock phrases, hedging, flat rhythm, POV/tense slips, British spelling; see [Review quality](#review-quality))
 - **llm**: `base_url`, `api_key` (`""`, plain value, or `env:VAR`; `LLM_API_KEY` env var is the fallback), `model`, `timeout` (per request), `retries` (with backoff), `max_tokens` (optional per-request cap; replies cut off by a length limit are continued automatically), `endpoint_wait` (seconds to wait for a downed/reloading server before aborting a phase), `reasoning_effort` (`""`, `low`, `medium`, `xhigh` = the maximum; sent as `chat_template_kwargs.reasoning_effort` for Qwen3.8-style thinking models. When set, the researcher and extractor default to `low` and the reviewer to `medium`; the other stages use the value as set. Empty sends no thinking controls to anyone), `enable_thinking` (`true`/`false`; sent as `chat_template_kwargs.enable_thinking` when set; reportedly unsupported on Qwen3.8), `stream`, `stream_max_seconds`, `json_mode` and `context_window` (see [Observability](#observability)), `sampling` (extra sampler fields sent verbatim; llama.cpp/Ollama only, see [Observability](#observability))
-- **agents**: per-agent `model` (default `llm.model`; each must exist on the same server and is checked at startup), `reasoning_effort` / `enable_thinking` / `max_tokens` / `sampling` (override the `llm.*` value; an empty `reasoning_effort:` sends nothing for that agent). The researcher, extractor, verifier and reviewer, which only produce short structured replies, have a built-in output ceiling (6000 / 6000 / 2000 / 8000 tokens) unless you set `max_tokens`: a model that loops while writing JSON otherwise never stops and `temperature` for `seed_reviewer` (the seed review), `architect`, `planner`, `researcher`, `verifier` (judging search results and the second check), `writer`, `extractor` (per-chapter JSON continuity extraction), `reviewer`, `editor` — only sent when set; otherwise the server/model default applies — and `enabled` for `researcher`/`reviewer`/`editor` (disable them to speed things up)
+- **agents**: per-agent `model` (default `llm.model`; each must exist on the same server and is checked at startup), `reasoning_effort` / `enable_thinking` / `max_tokens` / `sampling` (override the `llm.*` value; an empty `reasoning_effort:` sends nothing for that agent). The researcher, extractor, verifier and reviewer, which only produce short structured replies, have a built-in output ceiling (6000 / 6000 / 2000 / 8000 tokens; the `knowledge` check 6000) unless you set `max_tokens`: a model that loops while writing JSON otherwise never stops and `temperature` for `seed_reviewer` (the seed review), `architect`, `planner`, `researcher`, `verifier` (judging search results and the second check), `writer`, `extractor` (per-chapter JSON continuity extraction), `reviewer`, `knowledge` (the secret-knowledge check), `editor` — only sent when set; otherwise the server/model default applies — and `enabled` for `researcher`/`reviewer`/`editor` (disable them to speed things up)
 - **Endpoint variables**: `BOOKWRITER_LLM_BASE_URL` and `BOOKWRITER_SEARXNG_URL`, when set, replace `llm.base_url` and `web_search.searxng_url` for every run, CLI and web GUI alike (`load_config` prints a `[CONFIG]` line saying so). Where the servers are is a fact about the machine, not the book. Example: a SearXNG container on a Docker network publishes no port, so on the host run `BOOKWRITER_SEARXNG_URL=http://$(docker inspect -f '{{range .NetworkSettings.Networks}}{{.IPAddress}}{{end}}' searxng):8080 uv run main.py --seed ...`. The CLI also reads `.env` next to `main.py` (the file `docker compose` reads), so API keys such as `TINYFISH_API_KEY`, `PARALLEL_API_KEY` and `LLM_API_KEY` put there once work for both; variables already in the environment win, and only names, never values, are printed. An endpoint variable in `.env` whose host does not resolve on the host (`host.docker.internal`, a compose service name like `searxng`) is skipped for the CLI with a `[CONFIG]` line, and `config.yaml`'s address is used. An address that works on both sides, such as the SearXNG container's IP on its Docker network, serves the CLI and the container alike. `.env` is in `.dockerignore`, so keys are never baked into the image.
 - **web_search**: `enabled`, `searxng_url`, `auto_start`, `docker_image`, `queries_per_chapter`, `results_per_query`, `snippet_chars`, `categories`, `timeout`, `double_check`, `banned_terms`, `block_character_names`, `min_interval`, `providers`, `parallel_url`, `parallel_api_key`, `tinyfish_url`, `tinyfish_api_key` (see [Web fact-checking](#web-fact-checking-optional))
 - **output**: `directory`, `filename`, `overwrite` (`false` appends `-1`, `-2`, ... instead of clobbering), `interim` (progress artifacts under `<directory>/interim/`), `log` (copy console output to `<directory>/logs/run-<time>.log`)
@@ -931,10 +932,16 @@ same files, so you can resume a run in either mode.
 Each chapter goes through the lint, the reviewer and the editor. Beyond the
 continuity checks (deaths, who has met, timeline) there are:
 
-- **Reviewer checks** (`book.review_checks`, default all three):
+- **Reviewer checks** (`book.review_checks`, default all four):
   `continuity`; `outline` (does the chapter deliver the beats its outline entry
   and lore brief require? only entirely missing beats count); `constraints`
-  (your seed's rules a word-counter can't check: POV, tense, content and style).
+  (your seed's rules a word-counter can't check: POV, tense, content and style);
+  `knowledge` (does anyone act on a secret nobody told them? One narrow call per
+  recorded secret, run as the `knowledge` agent, and only when a named character
+  was never told it; the answer needs a quote that is really in the chapter. The
+  broad review caught this 1 time in 8 on a 27B model, this check every time with
+  no false alarms; see ROADMAP.md, Measurements. A `review_checks` list that
+  predates it and names only the other three leaves it off).
   Findings feed the same bounded revise loop; for an outline gap the reviser
   adds the missing beat as a short passage.
 - **Judging a revision**: a revision (or polish) is kept only if it does not
@@ -1067,7 +1074,7 @@ continuity checks (deaths, who has met, timeline) there are:
 - **Sampler controls** (`llm.sampling`): extra sampler fields (`min_p`, `top_k`,
   `top_p`, `repeat_penalty`, `repeat_last_n`, the `dry_*` family, `xtc_*`,
   `typ_p`, `dynatemp_*`) sent **verbatim** on prose requests. They are not
-  sent to the JSON-only agents (`extractor`, `verifier`, `reviewer`) or to any
+  sent to the JSON-only agents (`extractor`, `verifier`, `reviewer`, `knowledge`) or to any
   JSON-object call, since repetition penalties fight JSON's repeated keys.
   The `editor` (revisions, the polish) and the `seed_reviewer` (expanding the
   seed) get the block **without** its repetition penalties (`repeat_*`,

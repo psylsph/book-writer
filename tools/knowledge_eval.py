@@ -14,7 +14,7 @@ measure: did it report a KNOWLEDGE issue?
 
 Per-target options (repeatable, LABEL or LABEL=VALUE): --mode (check, the
 default, or reviewer), --no-thinking, --reasoning-effort. For `check` they set
-the `verifier` agent (that is the agent the check runs as); for `reviewer`, the
+the `knowledge` agent (that is the agent the check runs as); for `reviewer`, the
 `reviewer` agent. The config's own effort for that agent is ignored.
 """
 
@@ -34,7 +34,7 @@ from tools.knowledge_cases import cases  # noqa: E402
 from tools.reviewer_cases import (BIBLE, BRIEF, CHAPTERS, NUMBER,  # noqa: E402
                                   TITLE, chronology)
 
-AGENT = {"check": "verifier", "reviewer": "reviewer"}
+AGENT = {"check": "knowledge", "reviewer": "reviewer"}
 
 
 def score(expected, reported):

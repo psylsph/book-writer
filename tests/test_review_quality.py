@@ -285,3 +285,83 @@ def test_quotes_found():
     assert reviewer.quotes_found('"came down on the harbour wall" but the '
                                  'outline says "she leaves the island first"',
                                  draft)
+
+
+# ------------------------------------------------------------ knowledge check
+
+SECRET_STATE = {"summary": "s", "time": "", "location": "",
+                "present": ["Aria"], "events": [
+                    {"type": "secret_revealed", "who": ["Aria"],
+                     "detail": "the letter names her heir"}]}
+KNOW_DRAFT = ('Aria folded the map. "Heir to a drowned chapel," Tom muttered '
+              "at the knot, and she said nothing.")
+KNOW_QUOTE = '"Heir to a drowned chapel," Tom muttered at the knot.'
+
+
+def _knowledge(tmp_path, monkeypatch, book="", broad=None):
+    """Chapter 2's review, with a secret recorded in chapter 1 that only Aria
+    knows. The broad review's reply is `broad`; the knowledge call says Tom
+    acts on it. Returns (issues, knowledge_calls)."""
+    from agents import knowledge_check
+    _config(tmp_path, book)
+    set_story("chronology", {1: dict(SECRET_STATE, number=1, title="Ch1")})
+    calls = []
+    monkeypatch.setattr(reviewer, "generate_with_wait", Reply(
+        broad or {"verdict": "pass", "issues": []}))
+
+    def knowledge_call(prompt, **kwargs):
+        calls.append(kwargs)
+        return json.dumps({"answer": True, "who": "Tom", "quote": KNOW_QUOTE})
+
+    monkeypatch.setattr(knowledge_check, "generate_with_wait", knowledge_call)
+    _, issues = reviewer.review_chapter(2, "Ch2", KNOW_DRAFT)
+    return issues, calls
+
+
+def test_the_knowledge_check_adds_its_issue_to_the_review(tmp_path, monkeypatch):
+    issues, calls = _knowledge(tmp_path, monkeypatch)
+    assert [i["type"] for i in issues] == ["knowledge"]
+    assert KNOW_QUOTE in issues[0]["description"]
+    assert len(calls) == 1 and calls[0]["agent"] == "knowledge"
+    assert calls[0]["json_mode"] is True
+
+
+def test_it_can_be_switched_off_in_review_checks(tmp_path, monkeypatch):
+    issues, calls = _knowledge(
+        tmp_path, monkeypatch,
+        book="  review_checks: [continuity, outline, constraints]\n")
+    assert issues == [] and calls == []
+    assert "knowledge" in reviewer.ALL_CHECKS
+    assert "knowledge" not in reviewer.PROMPT_CHECKS
+
+
+def test_a_knowledge_issue_from_the_broad_review_is_not_doubled(tmp_path,
+                                                                monkeypatch):
+    broad = {"verdict": "revise", "issues": [
+        {"type": "knowledge", "description": "Tom knows what he was never told",
+         "fix": "remove it"}]}
+    issues, calls = _knowledge(tmp_path, monkeypatch, broad=broad)
+    assert [i["type"] for i in issues] == ["knowledge"] and calls == []
+
+
+def test_the_knowledge_check_does_not_change_the_broad_prompt(tmp_path,
+                                                              monkeypatch):
+    _, reply = _review(tmp_path, monkeypatch, {"verdict": "pass", "issues": []})
+    prompt = reply.calls[0]["prompt"]
+    assert "KNOWLEDGE ERRORS" in prompt and "outline_gap" in prompt
+
+
+def test_a_server_outage_during_the_knowledge_check_still_aborts(tmp_path,
+                                                                 monkeypatch):
+    from agents import knowledge_check
+    _config(tmp_path)
+    set_story("chronology", {1: dict(SECRET_STATE, number=1, title="Ch1")})
+    monkeypatch.setattr(reviewer, "generate_with_wait",
+                        Reply({"verdict": "pass", "issues": []}))
+
+    def down(*a, **k):
+        raise EndpointUnavailable("down")
+
+    monkeypatch.setattr(knowledge_check, "generate_with_wait", down)
+    with pytest.raises(EndpointUnavailable):
+        reviewer.run_reviewer(2, "Ch2", KNOW_DRAFT)

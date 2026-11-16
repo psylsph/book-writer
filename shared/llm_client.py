@@ -187,6 +187,7 @@ AGENT_REASONING_DEFAULTS = {
     "verifier": "low",
     "extractor": "low",
     "reviewer": "medium",
+    "knowledge": "low",     # measured: low found every case medium did, faster
 }
 
 
@@ -226,6 +227,7 @@ AGENT_MAX_TOKENS_DEFAULTS = {
     "extractor": 6000,
     "verifier": 2000,
     "reviewer": 8000,
+    "knowledge": 6000,
 }
 
 
@@ -254,7 +256,7 @@ SAMPLING_KEYS = config_schema.SAMPLING_KEYS
 # reply here costs continuity facts or a review. So llm.sampling, which is
 # tuned for prose, is not sent to them, nor to any json_mode call; an
 # agents.<name>.sampling block still applies, for whoever wants to measure it.
-JSON_AGENTS = {"extractor", "verifier", "reviewer"}
+JSON_AGENTS = {"extractor", "verifier", "reviewer", "knowledge"}
 
 # Agents that rewrite text they are given: the editor (revisions, the polish)
 # and the seed reviewer (expanding the seed "keeping every word"). Their job is

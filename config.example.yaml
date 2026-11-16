@@ -71,7 +71,10 @@ book:
   #   continuity  deaths, who has met, timeline, setting against earlier chapters
   #   outline     the chapter delivers the beats its outline entry/brief require
   #   constraints rules a word-counter can't check (POV, tense, content, style)
-  review_checks: [continuity, outline, constraints]
+  #   knowledge   nobody acts on a secret they were never told (a separate narrow
+  #               call per recorded secret, agent `knowledge`; the broad review
+  #               caught this 1 time in 8, this check every time, at no false alarms)
+  review_checks: [continuity, outline, constraints, knowledge]
 
   # Reword phrases a chapter reuses from earlier ones (6+ word phrases already
   # used twice before; and a book-wide list in lint_report.md).
@@ -291,6 +294,12 @@ agents:
     #                        # off found 35% of planted errors vs 95% at low
     #                        # (an earlier model was no worse without it: check
     #                        # yours with tools/reviewer_eval.py --no-thinking)
+
+  knowledge:              # does anyone act on a secret nobody told them?
+    # model: other-model  # one narrow call per recorded secret (review_checks)
+    # reasoning_effort: low   # built-in default (when llm.reasoning_effort is set)
+    # enable_thinking: true   # keep it: measured on a 27B model, thinking off
+    #                         # found 3 of 12 errors, low found 12 of 12
 
   editor:                 # lint -> revise -> polish
     # model: other-model

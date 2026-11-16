@@ -123,8 +123,9 @@ def configure(url, model, opts):
                       json_mode=opts.get("json_mode", False))
     # never write review files into the user's real output directory
     cfg.setdefault("output", {})["interim"] = False
+    # the broad review alone: the knowledge call is measured by knowledge_eval
     cfg.setdefault("book", {})["review_checks"] = opts.get("checks") or list(
-        reviewer.ALL_CHECKS)
+        reviewer.PROMPT_CHECKS)
     agent = cfg.setdefault("agents", {}).setdefault("reviewer", {})
     for key in ("model", "reasoning_effort", "enable_thinking", "temperature",
                 "max_tokens"):
@@ -241,7 +242,7 @@ def main(argv=None):
                              + ", or @file.txt")
     parser.add_argument("--checks", metavar="C,C",
                         help="review checks to run (default all): "
-                             + ", ".join(reviewer.ALL_CHECKS))
+                             + ", ".join(reviewer.PROMPT_CHECKS))
     parser.add_argument("--cases", metavar="ID,ID",
                         help="only these case ids, e.g. clean-a,dead")
     parser.add_argument("--runs", type=int, default=1)
@@ -267,8 +268,8 @@ def main(argv=None):
         except (KeyError, OSError) as e:
             raise SystemExit(f"--system: {e}")
     checks = args.checks.split(",") if args.checks else None
-    if checks and not set(checks) <= set(reviewer.ALL_CHECKS):
-        raise SystemExit(f"--checks: choose from {', '.join(reviewer.ALL_CHECKS)}")
+    if checks and not set(checks) <= set(reviewer.PROMPT_CHECKS):
+        raise SystemExit(f"--checks: choose from {', '.join(reviewer.PROMPT_CHECKS)}")
     cases = CASES
     if args.cases:
         wanted = set(args.cases.split(","))

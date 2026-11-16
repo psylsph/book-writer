@@ -204,7 +204,8 @@ off at ~280 words.
 runs each, qwen38-27b-abliterated, json_mode on, scored on "was a *knowledge*
 issue reported". `agents/knowledge_check.py` asks one question per recorded
 `secret_revealed` (code picks the characters never told it; a yes needs a quote
-that is really in the chapter). It is not in the pipeline yet.
+that is really in the chapter). It runs in the pipeline as a reviewer check (`knowledge`
+in `book.review_checks`, agent `knowledge`).
 
 | setup | errors found | false positives | unreadable | s/chapter |
 |---|---|---|---|---|

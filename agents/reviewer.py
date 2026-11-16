@@ -1,6 +1,6 @@
 """
 Reviewer Agent
-Reviews each chapter draft on up to three axes (book.review_checks):
+Reviews each chapter draft on up to four axes (book.review_checks):
 
   continuity   against the accumulated story state (who is alive, who has met
                whom, relationship progression, timeline) plus the story bible
@@ -8,6 +8,8 @@ Reviews each chapter draft on up to three axes (book.review_checks):
                and lore brief promise?
   constraints  does it obey the author's rules that a word-counting linter
                cannot check (point of view, tense, content and style rules)?
+  knowledge    does anyone act on a secret nobody told them? (its own narrow
+               call per recorded secret: agents/knowledge_check.py)
 
 Returns a structured verdict + issues; the editor agent feeds the findings
 into bounded revision rounds.
@@ -15,6 +17,7 @@ into bounded revision rounds.
 
 import re
 
+from agents import knowledge_check
 from shared import prompts
 from shared.story import STORY
 from shared.llm_client import (AbortRun, generate_with_wait,
@@ -25,7 +28,9 @@ from shared.output import chapter_filename, save_interim
 from shared.story_state import (merge_states, render_story_facts,
                                 render_story_so_far)
 
-ALL_CHECKS = ("continuity", "outline", "constraints")
+# the three the broad review prompt covers, then the separate knowledge call
+PROMPT_CHECKS = ("continuity", "outline", "constraints")
+ALL_CHECKS = PROMPT_CHECKS + ("knowledge",)
 # run_reviewer()'s verdict when the reply could not be read
 UNREVIEWED = "unreviewed"
 
@@ -173,6 +178,14 @@ def review_chapter(number, title, draft):
                 "description": str(issue["description"]).strip(),
                 "fix": str(issue.get("fix", "")).strip(),
             })
+    if "knowledge" in checks and not any(i["type"] == "knowledge"
+                                         for i in issues):
+        # one narrow question per recorded secret; the broad review above
+        # caught this in 1 of 8 tries. AbortRun propagates; an unreadable
+        # reply for one secret just skips that secret.
+        issues += knowledge_check.check_chapter(
+            number, draft, merge_states(STORY.get("chronology") or {},
+                                        upto=number), bible)
     verdict = "revise" if issues else "pass"
     scope = ", ".join(checks)
     if not issues:

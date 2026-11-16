@@ -1,5 +1,6 @@
-"""Knowledge check (experimental, not yet in the pipeline): does a character
-act on a secret nobody told them?
+"""Knowledge check: does a character act on a secret nobody told them?
+
+Runs as part of the review (book.review_checks: knowledge, agent `knowledge`).
 
 The reviewer has to spot this inside one broad review of eight error types, and
 on a 27B model it caught it in about one run in three. The facts it needs are
@@ -17,8 +18,10 @@ the characters asked about (deterministic code checks the model). Only
 characters who are NAMED in the chapter are asked about, so a chapter that
 leaves the outsiders out costs no call.
 
-check_chapter() is what a pipeline stage would call; tools/knowledge_eval.py
-measures it against the reviewer.
+agents/reviewer.py calls check_chapter() and adds its issues to the review, so
+the editor's revise loop handles them like any other. Measured on a 27B model
+(tools/knowledge_eval.py, ROADMAP.md): it found every error in a sound case, the
+broad reviewer 1 of 8, with no false positives, at about 19 s a chapter.
 """
 
 import re
@@ -86,7 +89,7 @@ def check_secret(secret, asked, record, number, draft):
     when the reply could not be read. EndpointUnavailable/AbortRun propagate."""
     try:
         raw = generate_with_wait(_prompt(secret, asked, record, number, draft),
-                                 system=prompts.KNOWLEDGE, agent="verifier",
+                                 system=prompts.KNOWLEDGE, agent="knowledge",
                                  json_mode=True)
         data = extract_json(raw, expect="object")
     except AbortRun:

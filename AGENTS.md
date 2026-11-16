@@ -43,6 +43,8 @@ agents/            one module per pipeline stage
   researcher.py    step 3: per-chapter lore brief (+ optional SearXNG fact-check)
   writer.py        step 4: drafts + per-chapter summary/story-state extraction and checks
   reviewer.py      LLM review: continuity / outline / constraints -> JSON verdict
+  knowledge_check.py  one narrow call per recorded secret: who acts on it untold
+                   (a reviewer check, run as its own `knowledge` agent)
   editor.py        step 5: lint -> review -> bounded revise loop -> polish -> save book
 shared/
   story.py         the run's story record: one dict every stage mutates (see invariants)

@@ -109,7 +109,7 @@ DEFAULTS = {
 
 AGENTS = ("seed_reviewer", "architect", "planner", "researcher", "verifier", "writer",
           "extractor",
-          "reviewer", "editor")
+          "reviewer", "knowledge", "editor")
 AGENT_KEYS = {"model", "temperature", "enabled", "reasoning_effort",
               "enable_thinking", "max_tokens", "sampling"}
 # Only these stages are optional, so only they have an off switch.
