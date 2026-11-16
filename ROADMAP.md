@@ -189,7 +189,11 @@ off at ~280 words.
   medium missed the "secret a character could not know" in all three runs;
   low caught it both times.
 - One reviewer reply in 28 at `low` was unparseable (counted as a pass in a
-  run); `llm.json_mode: true` is the guard.
+  run); `llm.json_mode: true` is the guard. With it on (llama-swap/llama.cpp
+  accepts it), 0 of 28 were unreadable, 47 s/chapter, right type 0.85: it
+  missed the secret twice and one weekday. So low's 0.95 above was partly
+  luck - the secret is caught in about one run in three at any effort, and
+  low and medium are within noise of each other (0.85-0.95).
 - A trap found on the way: the eval tools drop the config's effort for the
   agent they test, so two config files at different efforts measured the
   built-in default twice. `--reasoning-effort LABEL=EFFORT` now sets it.
