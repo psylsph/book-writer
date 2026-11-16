@@ -198,6 +198,31 @@ off at ~280 words.
   agent they test, so two config files at different efforts measured the
   built-in default twice. `--reasoning-effort LABEL=EFFORT` now sets it.
 
+### The knowledge check (a character acts on a secret nobody told them)
+
+`tools/knowledge_eval.py`, 20 versions of one chapter (4 with the error), 3
+runs each, qwen38-27b-abliterated, json_mode on, scored on "was a *knowledge*
+issue reported". `agents/knowledge_check.py` asks one question per recorded
+`secret_revealed` (code picks the characters never told it; a yes needs a quote
+that is really in the chapter). It is not in the pipeline yet.
+
+| setup | errors found | false positives | unreadable | s/chapter |
+|---|---|---|---|---|
+| the reviewer, low | 1 of 11 | 0 | 1 | 49 |
+| the check, thinking off | 3 of 12 | 0 | 0 | 1 |
+| the check, low | 9 of 12 (see below) | 0 | 0 | 19 |
+| the check, medium | 9 of 12 (see below) | 0 | 1 | 27 |
+
+- One error case was flawed (Elizabeth said the secret aloud in front of the
+  character, which tells them) and every setup missed it. With the case fixed,
+  the check finds it 3 of 3 at low and at medium, so the check is 12 of 12 on
+  sound cases; the reviewer was 1 of 8 on the other three.
+- Thinking is needed: without it the same model answers a blatant case "no" one
+  run and "yes" the next.
+- Samples are small (4 error chapters, one invented world): treat as a strong
+  signal, not a rate. The reviewer's number counts only issues typed
+  `knowledge`; it may flag these chapters under another type.
+
 ### Operational findings
 
 - **Runaway replies are real.** A reviewer reply decoded past 9,800 tokens
