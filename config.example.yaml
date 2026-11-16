@@ -165,7 +165,9 @@ llm:
   # Ask the server to enforce JSON output on the calls that return a JSON
   # object (architect, extractor, reviewer, ...). Fewer parse failures, but
   # needs server support; if the server rejects it the run carries on without.
-  json_mode: false
+  # Measured: a thinking reviewer returned 1 unparseable reply in 28, and an
+  # unreadable review counts as a pass.
+  json_mode: true
 
   # Extra sampler fields, sent VERBATIM on prose requests. Only the keys you
   # write are sent, and only llama.cpp / Ollama family servers understand them;
@@ -212,7 +214,11 @@ llm:
   #   researcher low,  extractor low,  reviewer medium
   # Leave this commented out and NO thinking controls are sent to anyone
   # (the built-in per-agent defaults then do nothing too).
-  # reasoning_effort: xhigh
+  # Measured on a 27B Qwen-style model (tools/*_eval.py, 2 runs each): low
+  # matched or beat medium and xhigh on every battery and was the fastest -
+  # writer 21 min vs 24 / 42 for the prose battery (and closer to the asked
+  # length), reviewer 95% of planted errors vs 90% / 85%. Start with low.
+  # reasoning_effort: low
   # enable_thinking: false   # hard off-switch; not honoured by every model
 
 # ---------------------------------------------------------------- agents
@@ -260,7 +266,8 @@ agents:
     # model: other-model
     # reasoning_effort: low   # built-in default
     # max_tokens: 400
-    enable_thinking: false  # measured: as accurate as thinking, ~15x faster
+    enable_thinking: false  # measured on two models: as accurate as thinking,
+                            # ~10-15x faster
 
   writer:                 # chapter prose
     # model: other-model
@@ -277,10 +284,13 @@ agents:
 
   reviewer:               # continuity review of each chapter
     # model: other-model
-    # reasoning_effort: medium # built-in default
+    # reasoning_effort: medium # built-in default; low measured as good or better
     enabled: true         # false leaves only the deterministic lint
     # temperature: 0.7
-    enable_thinking: false  # measured: no worse with thinking off, ~9x faster
+    # enable_thinking: true  # keep thinking: measured on a 27B model, thinking
+    #                        # off found 35% of planted errors vs 95% at low
+    #                        # (an earlier model was no worse without it: check
+    #                        # yours with tools/reviewer_eval.py --no-thinking)
 
   editor:                 # lint -> revise -> polish
     # model: other-model

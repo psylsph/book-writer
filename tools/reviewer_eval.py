@@ -18,8 +18,9 @@ reviewer claims to check.
       --system small=classic
 
 Per-target options (repeatable, LABEL or LABEL=VALUE): --temperature,
---system (tools/reviewer_prompts.py variants or @file), --no-thinking and
---max-tokens (a cap on each reply: without one a model that loops can generate
+--system (tools/reviewer_prompts.py variants or @file), --no-thinking,
+--reasoning-effort (the config's agents.reviewer effort is ignored, so this is
+how to compare efforts) and --max-tokens (a cap on each reply: without one a model that loops can generate
 for an hour; a reply cut off by the cap counts as unreadable).
 It runs agents.reviewer.review_chapter(), the pipeline's own code. Interim
 output is switched off, so nothing is written to your real output directory.

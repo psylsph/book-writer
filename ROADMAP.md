@@ -167,6 +167,33 @@ writer (the costly error); a wrong *no* only drops a good fact.
 - Also found and fixed along the way: a model answering `"who": "Tom Baker"`
   (a string) created one single-letter "character" per letter.
 
+### Thinking effort on a dense 27B Qwen3.8 (qwen38-27b-abliterated, 24k context)
+
+Every battery at `low`, `medium` and `xhigh` (2 runs each; thinking off where
+it was a candidate). `style_eval.py --thinking --max-tokens 16384`: at its
+default 2400-token cap, xhigh spent the reply thinking and 9 replies were cut
+off at ~280 words.
+
+| agent | low | medium | xhigh | thinking off |
+|---|---|---|---|---|
+| verifier: accuracy / false yes, s/check | 1.00 / 0, 3.6 | 1.00 / 0, 4.9 | 1.00 / 0, 4.1 | **1.00 / 0, 0.4** |
+| reviewer: right type, false alarms, unreadable, s/chapter | **0.95**, 0, 1 of 28, 50 | 0.85-0.90 (3 runs), 0, 0, 58-62 | 0.85, 0, 0, 76 | 0.35, 0, 1 of 28, 4 |
+| extractor: presence P, invented, false deaths, s/chapter | 0.94, 1, 0, 28 | 0.98, 3, 0, 37 | 0.96, 0, 0, 58 | - |
+| writer: within 20% of length, sentence CV, battery minutes | **0.82 / 0.55**, 0.87-0.96, 21 | 0.64 / 0.55, 0.84-0.94, 24 | 0.64 / 0.45, 0.60-0.61, 42 | - |
+
+- **`low` is the setting.** Higher effort bought nothing measurable and cost up
+  to twice the time. xhigh prose was more uniform in sentence length and
+  further from the asked length; medium and xhigh scored as more explicit.
+- **The reviewer needs thinking on this model** (unlike the 35B MoE above):
+  without it, it caught no constraint, dead-character or knowledge error.
+  medium missed the "secret a character could not know" in all three runs;
+  low caught it both times.
+- One reviewer reply in 28 at `low` was unparseable (counted as a pass in a
+  run); `llm.json_mode: true` is the guard.
+- A trap found on the way: the eval tools drop the config's effort for the
+  agent they test, so two config files at different efforts measured the
+  built-in default twice. `--reasoning-effort LABEL=EFFORT` now sets it.
+
 ### Operational findings
 
 - **Runaway replies are real.** A reviewer reply decoded past 9,800 tokens

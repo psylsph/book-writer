@@ -15,7 +15,7 @@ opinion. Measure before trusting one.
 
 Options (repeatable, LABEL or LABEL=VALUE) are the same as the extractor tool:
 --temperature, --system (tools/verdict_prompts.py variants or @file),
---no-thinking. It runs agents.researcher.confirms(), the pipeline's own code, as the
+--no-thinking, --reasoning-effort (the config's effort is ignored otherwise). It runs agents.researcher.confirms(), the pipeline's own code, as the
 `verifier` agent (agents.verifier.* settings apply).
 """
 

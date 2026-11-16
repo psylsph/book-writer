@@ -22,6 +22,8 @@ Per-target options (repeatable, LABEL or LABEL=VALUE):
   --system LABEL=NAME        system prompt: a variant from
                              tools/extractor_prompts.py or @file.txt
   --no-thinking LABEL        thinking off (a non-reasoning/hybrid model)
+  --reasoning-effort LABEL=low  thinking effort (the config's agents.extractor
+                             effort is ignored; the built-in default is used)
   --no-checks LABEL          switch off book.extraction_checks
 
 Mode 1 (default): synthetic chapters with KNOWN answers (tools/extractor_cases)

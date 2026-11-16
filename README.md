@@ -306,12 +306,15 @@ reviewing and extraction respectively.
   1`): a free speed-up when the drafter and the model agree, a slowdown beyond
   `n-max 1`. On the dense Qwen the drafter displaced layers and halved
   throughput, so it is off there.
-- **Thinking.** For Qwen3.8-style models `reasoning_effort: low` is the maximum
-  the template accepts, and the default here; pair it with `--reasoning-budget
-  2048` so a runaway thinking block cannot eat the whole reply. Thinking off made
-  the verifier ~15x and the reviewer ~9x faster on their test batteries with the
-  same accuracy — turn those two agents off (`agents.verifier.enable_thinking:
-  false`, likewise `reviewer`) if wall-clock matters more than the extra look.
+- **Thinking.** For Qwen3.8-style models `reasoning_effort: xhigh` is the
+  maximum the template accepts, but `low` measured as good or better on every
+  battery at half the time or less (see ROADMAP.md, Measurements): use `low`, and
+  pair it with `--reasoning-budget 2048` so a runaway thinking block cannot eat
+  the whole reply. Turn the verifier's thinking off
+  (`agents.verifier.enable_thinking: false`): just as accurate, ~10-15x faster.
+  Keep the reviewer's on: on a 27B Qwen it found 35% of planted errors without
+  thinking against 95% at `low` (an earlier model was no worse without it, so
+  check yours with `tools/reviewer_eval.py --no-thinking`).
   llama.cpp needs `--jinja` for any of the `chat_template_kwargs` this sends.
 - **Sampling.** `llm.sampling` (llama.cpp/Ollama only) with `min_p` / `top_k`
   plus DRY (`dry_multiplier`) stops verbatim repeats without flattening the
@@ -1194,9 +1197,13 @@ uv run python tools/extractor_eval.py \
 
 Each target can carry its own `--temperature LABEL=T`, `--system LABEL=NAME`
 (a prompt variant from `tools/extractor_prompts.py`, or `@file.txt`),
-`--no-thinking LABEL` and `--no-checks LABEL`, so the *same* model can be
-compared under different temperatures, system prompts and with the extraction
-checks on or off. `--cases 4,8` runs a subset (ten cases cover backstory deaths,
+`--no-thinking LABEL`, `--reasoning-effort LABEL=EFFORT` and `--no-checks LABEL`,
+so the *same* model can be compared under different temperatures, system
+prompts, thinking efforts and with the extraction checks on or off. All three
+tools ignore the config's `reasoning_effort` for the agent they test (the
+built-in default is the baseline), so compare efforts with
+`--reasoning-effort`, not with two config files. `--cases 4,8` runs a subset
+(ten cases cover backstory deaths,
 near-deaths, an implicit death, a funeral after a recorded death and an attack
 nobody dies in).
 
@@ -1234,7 +1241,8 @@ reports how many errors are found, how many are labelled with the right type,
 how many clean chapters are wrongly sent back for revision (a wasted round and a
 risk of new errors), and every miss and false alarm. `--system LABEL=classic`
 compares the previous reviewer prompt; `--max-tokens LABEL=N` bounds a model that
-loops. Nothing is written to your output directory.
+loops; `--reasoning-effort LABEL=low` sets the thinking effort. Nothing is
+written to your output directory.
 
 ```bash
 uv run python tools/reviewer_eval.py --runs 2 -v \
