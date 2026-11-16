@@ -2,106 +2,51 @@
 
 A collaborative AI book writing system using multiple specialized agents. Feed it a **seed prompt** — your premise, characters, world, tone, and (optionally) a chapter outline — and the agent team drafts a complete, polished book from it.
 
-## What a run looks like
-
-A real ten-chapter book, with the seed review in `auto` mode so the run asked
-nothing: the first run stopped after the seed review, the second resumed it.
-Chapter titles and the book's text are left out, and LLM progress lines are
-trimmed to `...`; everything else is the console output as printed.
+## The pipeline at a glance
 
 ```text
-[PIPELINE] Step 0: Seed review (length and gaps)
-------------------------------------------------------------
-[SEED REVIEW] Checking that the seed can carry the book's length...
-...
-
-# Seed review
-
-**Requested:** 10 chapters x 2,000 words (about 20,000), from the seed's own outline
-**Verdict:** about right
-**Recommended:** 10 chapters x 2,500 words (about 25,000)
-**Natural length of the material:** about 20,000-30,000 words
-
-## Checks
-
-- The seed supplies 10 distinct scenes/events. At 20,000 words that is about 2,000 words per scene (a scene usually runs 1,000-3,000).
-
-...
-[INTERIM] Saved output/interim/seed_review.md
-[SEED REVIEW] auto: accepting 3 suggested answer(s); expanding the seed...
-[SEED REVIEW] The expanded seed (944 -> 1,004 words). What changed:
-...
-[SEED REVIEW] auto: expanded seed kept and saved as the master seed (output/seed.md); reviewing it again...
+  A SEED  ────────────────────────────────────────────────────────────────────
+  a .md file · --prompt "…" · seeds/example_seed.md · the GUI's new-book form
+      │
+      ▼
+ ┌────┬──────────────────────────────────────────────────────────────────────┐
+ │ 0  SEED REVIEW    can this seed carry the book's length?                  │
+ │                                                                           │
+ │      scenes the seed supplies ──► quotes checked in code ──► words/scene  │
+ │                                                                           │
+ │      verdict ──► too long or too short ──► ask, expand, review again      │
+ │              └─► about right ──► go on to the book's size                 │
+ │                                                                           │
+ │      the expansion you keep is the MASTER SEED  (state/seed.json)         │
+ └──────────────────────────────────┬────────────────────────────────────────┘
+                                    ▼
+ ┌──────────────────────────────────┬────────────────────────────────────────┐
+ │ 1  ARCHITECT    seed + your answers ──► story bible (JSON)                │
+ │                                                                           │
+ │ 2  PLANNER      bible + the seed's own outline ──► chapter outline        │
+ │                 └── --plan-only stops here: read the plan, rerun later    │
+ │                                                                           │
+ │ 3  RESEARCHER   per chapter: a lore brief (+ optional SearXNG fact-check) │
+ │                                                                           │
+ │ 4  WRITER       chapter N from bible + brief + story state + recap        │
+ │                    └──► next chapter's summary and story facts            │
+ │ 5  EDITOR       lint + reviewer ──► revise ──► polish ──► keep the better │
+ │                 up to 4 revise rounds while findings last, and whichever  │
+ │                 version is cleaner is the one kept                        │
+ │                                                                           │
+ │      then back to step 4 for chapter N+1; with review_as_you_go a chapter │
+ │      is edited (and its facts re-extracted) before the next is written    │
+ └──────────────────────────────────┬────────────────────────────────────────┘
+                                    ▼
+   output/draft.md · chapters/chapter_NN.md · story_bible.md
+   interim/ what is happening now · state/ what a rerun resumes from
+   make_epub.py ──► output/<title>.epub
 ```
 
-<kbd>Ctrl-C</kbd>, then the same command again:
-
-```text
-[RESUME] Loaded a seed expanded in 5 review round(s), bible '<book>', plan 10 chapters, 5 drafted, 4 edited.
-[PIPELINE] Step 1: Architect (story bible)
-[PIPELINE] Story bible loaded from the saved run; skipping.
-
-[PIPELINE] Steps 4-5: Write & Review chapter by chapter
-------------------------------------------------------------
-
-[PIPELINE] Chapter 6/10: <chapter title>
-[WRITER] Writing chapter 6/10: <chapter title>
-[INTERIM] Saved output/interim/draft_chapter_06.md
-[CHAPTER] Saved output/chapters/chapter_06.md
-[WRITER] Draft completed for chapter 6 (2801 words).
-...
-[INTERIM] Saved output/interim/summaries.md
-[INTERIM] Saved output/interim/story_state.md
-[EDITOR] Chapter 6/10: review & edit
-[EDITOR] Chapter 6: 2801 words (target 2000, min 1600, max 3000)
-[REVIEWER] Reviewing chapter 6...
-[REVIEWER] Chapter 6: revise (1 issues)
-[EDITOR] Revision round 1/4 for chapter 6: 0 lint, 1 review issues
-...
-[EDITOR] Polishing chapter 6...
-[INTERIM] Saved output/interim/diff_chapter_06.md
-[INTERIM] Saved output/interim/edited_chapter_06.md
-[CHAPTER] Saved output/chapters/chapter_06.md
-[EDITOR] Chapter 6 complete.
-[EDITOR] Final book saved to output/draft.md
-[WRITER] Story state for chapter 6 refreshed from the edited text.
-
-[PIPELINE] Chapter 8/10: <chapter title>
-...
-[EDITOR] Revision round 1/4 for chapter 8: 1 lint, 1 review issues
-[EDITOR] Revision made chapter 8 worse (severity 6 -> 8); keeping the previous version.
-[EDITOR] Chapter 8: 1 findings remain after revision (see lint_report.md)
-...
-============================================================
-PIPELINE COMPLETE!
-============================================================
-Title: <book>
-Chapters: 10
-Drafted: 10 | Edited: 10
-Total time: 102.7 minutes
-============================================================
-
-# Run statistics
-
-| agent | calls | prompt tokens | output tokens | minutes | output tok/s |
-|---|---|---|---|---|---|
-| editor | 13 | 0 | 0 | 50.5 | - |
-| extractor | 16 | 0 | 0 | 8.8 | - |
-| reviewer | 13 | 0 | 0 | 24.5 | - |
-| writer | 5 | 0 | 0 | 18.8 | - |
-| **total** | 47 | 0 | 0 | 102.6 | - |
-
-[INTERIM] Saved output/interim/run_stats.md
-
-✓ Book written! Check output/draft.md
-```
-
-That is the whole run: an hour and three quarters of model time on 47 calls, the
-chapter-8 line showing the safeguard that keeps a revision which made a chapter
-worse out of the book. Follow a live run in `output/interim/` and
-`output/chapters/` ([Interim output](#interim-output)); the files at the end are
-listed in [Durable per-chapter files](#durable-per-chapter-files) and
-[Making an EPUB](#making-an-epub).
+The browser runs this same pipeline: the GUI starts one `main.py` per book and
+shows you the run while it happens, questions and all (see
+[Web GUI](#web-gui-optional)). Every stage is a checkpoint, so a crash or a
+`Ctrl-C` costs one chapter, not the book ([Resume](#resume)).
 
 ## Project Overview
 
@@ -612,6 +557,35 @@ uv run --extra web uvicorn web.app:app --host 127.0.0.1 --port 8000
 
 Then open <http://127.0.0.1:8000>.
 
+```text
+   open http://127.0.0.1:8000   (a phone on the same network or tailnet works too)
+        │
+        ▼
+   ┌────┬────────────────────────────────────────────────────────────────────┐
+   │ NEW BOOK    seed · chapters · model · seed-review mode · settings       │
+   │             Start ──► the server runs one main.py for this book, in     │
+   │                       a directory of its own: output/web/<run>/         │
+   └───────────────────────────────┬─────────────────────────────────────────┘
+                                   ▼
+   ┌───────────────────────────────┬─────────────────────────────────────────┐
+   │ SEED REVIEW ASKS     the terminal's questions as one form of fields,    │
+   │                      its menus as buttons: answer, take the suggestion, │
+   │                      add notes ──► then keep-or-undo, with every        │
+   │                      changed line of the seed shown                     │
+   └───────────────────────────────┬─────────────────────────────────────────┘
+                                   ▼
+   ┌───────────────────────────────┬─────────────────────────────────────────┐
+   │ THE RUN      chapters appear one by one · the log streams · time left   │
+   │                                                                         │
+   │   Stop    SIGINT: the partial book is saved                             │
+   │   Resume  continues from the last finished chapter                      │
+   │   Files   draft.md, seed.md, bible, chapters, the HTML book, EPUB       │
+   │   Delete  moved to output/web/.trash/<run>, not erased                  │
+   └─────────────────────────────────────────────────────────────────────────┘
+        reload the page, open it on another device, or restart the server:
+        the run is its directory on disk, so the same book comes back
+```
+
 - **Each book is its own process.** The GUI starts `main.py` as a subprocess
   with a directory of its own (`output/web/<run>/`: `config.yaml`, `state/`,
   `chapters/`, and the web layer's `job/` with its seed, journal, log and
@@ -806,69 +780,40 @@ exit code (and the run stops) or `None` and the next one starts; every stage
 skips work whose result is already in `output/state/`, which is what makes a
 crashed run resumable.
 
-```mermaid
-flowchart TD
-    seed["Seed prompt<br/>--seed FILE / --prompt TEXT / bundled example"]
+```text
+   seed prompt
+        │
+        ▼
+   ┌────┬───────────────────────────────────────────────────────────────────┐
+   │ 0  seed review                     state/seed.json (the master seed)   │
+   │       ▲    │                       state/plan.json  (the settled size) │
+   │       │    │ too long or too short: ask, expand, review again          │
+   │       └────┘                                                           │
+   └────────────────────────────────┬───────────────────────────────────────┘
+                                    ▼
+   ┌────────────────────────────────┬───────────────────────────────────────┐
+   │ 1  architect ─────────────► state/bible.json                           │
+   │ 2  planner ───────────────► state/outline.json                         │
+   │        └── --plan-only: the run ends here, rerun to continue           │
+   │ 3  researcher ────────────► state/research.json   (skippable agent)    │
+   │                                                                        │
+   │ 4  writer, chapter N ─────► state/drafts.json, summaries, chronology   │
+   │ 5  editor, chapter N ────► state/final.json                            │
+   │        lint -> review -> revise -> polish -> lint guard                │
+   │                                                                        │
+   │    chapter N+1 returns to 4, until the last chapter is saved           │
+   └────────────────────────────────┬───────────────────────────────────────┘
+                                    ▼
+                    draft.md · chapters/ · book EPUB · story_bible.md
 
-    subgraph step0["Step 0 - Seed review (agents/seed_review.py)"]
-        review["Model lists the seed's scenes with quotes;<br/>code checks each quote, counts words per scene<br/>and compares them with the requested size"]
-        fits{"does the size fit?"}
-        expand["ask / auto: questions answered,<br/>seed expanded with the answers"]
-        master["Master seed<br/>state/seed.json + output/seed.md"]
-        review --> fits
-        fits -- "too long / too short" --> expand --> review
-        fits -- yes --> master
-    end
-
-    subgraph step1["Step 1 - Architect"]
-        bible["Story bible (JSON)<br/>title, genre, tone, characters, world, constraints"]
-    end
-
-    subgraph step2["Step 2 - Planner"]
-        outline["Chapter outline<br/>the seed's own outline wins; only expanded if asked"]
-    end
-
-    planonly{"--plan-only?"}
-    stop(["stop here, cheaply<br/>rerun to write the book"])
-
-    subgraph step3["Step 3 - Researcher (optional)"]
-        briefs["Per-chapter lore brief<br/>+ optional SearXNG fact-check"]
-    end
-
-    subgraph step45["Steps 4-5 - Writer and Editor, chapter by chapter"]
-        draft["Writer: chapter N from the bible, the brief,<br/>the story facts and the rolling summary"]
-        facts["Extractor: next-chapter summary + story state<br/>(time, place, cast, meetings, deaths, injuries)"]
-        review2["Deterministic lint + LLM review<br/>continuity, outline, constraints, style"]
-        fix["Bounded revise rounds, then polish<br/>and a lint guard"]
-        more{"more chapters?"}
-        draft --> facts --> review2
-        review2 -- findings --> fix --> review2
-        review2 -- clean --> more
-        more -- yes --> draft
-    end
-
-    interleave["book.review_as_you_go: true<br/>re-extract from the edited text,<br/>then write chapter N+1"]
-
-    subgraph save["Save"]
-        files["output/draft.md, output/chapters/chapter_NN.md,<br/>output/story_bible.md, interim/ and state/"]
-        epub["make_epub.py - EPUB 3"]
-        files --> epub
-    end
-
-    seed --> review
-    master --> bible --> outline --> planonly
-    planonly -- no --> briefs --> draft
-    planonly -- yes --> stop
-    more -- no --> files
-    fix -.-> interleave
+   rerun the same command at any point: every stage above whose result is
+   already in state/ is skipped, so it continues from the last chapter saved.
 ```
 
-Every arrow is a checkpoint: the bible, the outline, each brief, draft, summary,
-story state and edited chapter is written to `output/state/` the moment it
-exists, so rerunning the same command after a crash, a Ctrl-C or a dead server
-continues from where it stopped (see [Resume](#resume)). `--plan-only` stops
-after the seed review, the bible and the outline; `--no-resume` moves the old run
-to `output/archive/` and starts over.
+Each of those files is written atomically the moment its stage finishes, which is
+why a Ctrl-C or a dead server costs one chapter rather than the book (see
+[Resume](#resume)). `--no-resume` moves the old run to `output/archive/` and
+starts over.
 
 ### Pipeline Flow
 
