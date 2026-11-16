@@ -2,7 +2,106 @@
 
 A collaborative AI book writing system using multiple specialized agents. Feed it a **seed prompt** — your premise, characters, world, tone, and (optionally) a chapter outline — and the agent team drafts a complete, polished book from it.
 
-<img src="/images/writer.gif" alt="writer demo" style="width:100%; height:auto;" />
+## What a run looks like
+
+A real ten-chapter book, with the seed review in `auto` mode so the run asked
+nothing: the first run stopped after the seed review, the second resumed it.
+Chapter titles and the book's text are left out, and LLM progress lines are
+trimmed to `...`; everything else is the console output as printed.
+
+```text
+[PIPELINE] Step 0: Seed review (length and gaps)
+------------------------------------------------------------
+[SEED REVIEW] Checking that the seed can carry the book's length...
+...
+
+# Seed review
+
+**Requested:** 10 chapters x 2,000 words (about 20,000), from the seed's own outline
+**Verdict:** about right
+**Recommended:** 10 chapters x 2,500 words (about 25,000)
+**Natural length of the material:** about 20,000-30,000 words
+
+## Checks
+
+- The seed supplies 10 distinct scenes/events. At 20,000 words that is about 2,000 words per scene (a scene usually runs 1,000-3,000).
+
+...
+[INTERIM] Saved output/interim/seed_review.md
+[SEED REVIEW] auto: accepting 3 suggested answer(s); expanding the seed...
+[SEED REVIEW] The expanded seed (944 -> 1,004 words). What changed:
+...
+[SEED REVIEW] auto: expanded seed kept and saved as the master seed (output/seed.md); reviewing it again...
+```
+
+<kbd>Ctrl-C</kbd>, then the same command again:
+
+```text
+[RESUME] Loaded a seed expanded in 5 review round(s), bible '<book>', plan 10 chapters, 5 drafted, 4 edited.
+[PIPELINE] Step 1: Architect (story bible)
+[PIPELINE] Story bible loaded from the saved run; skipping.
+
+[PIPELINE] Steps 4-5: Write & Review chapter by chapter
+------------------------------------------------------------
+
+[PIPELINE] Chapter 6/10: <chapter title>
+[WRITER] Writing chapter 6/10: <chapter title>
+[INTERIM] Saved output/interim/draft_chapter_06.md
+[CHAPTER] Saved output/chapters/chapter_06.md
+[WRITER] Draft completed for chapter 6 (2801 words).
+...
+[INTERIM] Saved output/interim/summaries.md
+[INTERIM] Saved output/interim/story_state.md
+[EDITOR] Chapter 6/10: review & edit
+[EDITOR] Chapter 6: 2801 words (target 2000, min 1600, max 3000)
+[REVIEWER] Reviewing chapter 6...
+[REVIEWER] Chapter 6: revise (1 issues)
+[EDITOR] Revision round 1/4 for chapter 6: 0 lint, 1 review issues
+...
+[EDITOR] Polishing chapter 6...
+[INTERIM] Saved output/interim/diff_chapter_06.md
+[INTERIM] Saved output/interim/edited_chapter_06.md
+[CHAPTER] Saved output/chapters/chapter_06.md
+[EDITOR] Chapter 6 complete.
+[EDITOR] Final book saved to output/draft.md
+[WRITER] Story state for chapter 6 refreshed from the edited text.
+
+[PIPELINE] Chapter 8/10: <chapter title>
+...
+[EDITOR] Revision round 1/4 for chapter 8: 1 lint, 1 review issues
+[EDITOR] Revision made chapter 8 worse (severity 6 -> 8); keeping the previous version.
+[EDITOR] Chapter 8: 1 findings remain after revision (see lint_report.md)
+...
+============================================================
+PIPELINE COMPLETE!
+============================================================
+Title: <book>
+Chapters: 10
+Drafted: 10 | Edited: 10
+Total time: 102.7 minutes
+============================================================
+
+# Run statistics
+
+| agent | calls | prompt tokens | output tokens | minutes | output tok/s |
+|---|---|---|---|---|---|
+| editor | 13 | 0 | 0 | 50.5 | - |
+| extractor | 16 | 0 | 0 | 8.8 | - |
+| reviewer | 13 | 0 | 0 | 24.5 | - |
+| writer | 5 | 0 | 0 | 18.8 | - |
+| **total** | 47 | 0 | 0 | 102.6 | - |
+
+[INTERIM] Saved output/interim/run_stats.md
+
+✓ Book written! Check output/draft.md
+```
+
+That is the whole run: an hour and three quarters of model time on 47 calls, the
+chapter-8 line showing the safeguard that keeps a revision which made a chapter
+worse out of the book. Follow a live run in `output/interim/` and
+`output/chapters/` ([Interim output](#interim-output)); the files at the end are
+listed in [Durable per-chapter files](#durable-per-chapter-files) and
+[Making an EPUB](#making-an-epub).
 
 ## Project Overview
 
