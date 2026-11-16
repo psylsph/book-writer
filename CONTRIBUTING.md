@@ -31,11 +31,11 @@ The tests need no LLM server, network access or Docker, so they run anywhere. A 
 > - Make sure you have been assigned the issue to which you are making a PR.
 > - If you make a PR before being assigned, it may be labeled `invalid` and closed without merging.
 
-- Fork [the repo](https://github.com/psylsph/Multi-Agent-Book-Writer) and clone your fork.
+- Fork [the repo](https://github.com/psylsph/book-writer) and clone your fork.
 - Add an `upstream` remote pointing at the main repo:
 
     ```sh
-    git remote add upstream https://github.com/psylsph/Multi-Agent-Book-Writer.git
+    git remote add upstream https://github.com/psylsph/book-writer.git
     ```
 
 - Keep your clone up to date by pulling from upstream (this also avoids merge conflicts later):
