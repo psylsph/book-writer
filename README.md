@@ -6,8 +6,9 @@ A collaborative AI book writing system using multiple specialized agents. Feed i
 
 ## Project Overview
 
-The writing team consists of five agents:
+A run is a seed review followed by six agents:
 
+- **Seed reviewer**: reads the seed before anything is written, lists the scenes it actually supplies (with quotes that code verifies), works out whether they fill the length you asked for, and — with your answers — expands the seed until it does. The kept expansion becomes the run's master seed
 - **Architect**: reads your seed prompt and distills it into a *story bible* (title, genre, tone, characters, world, constraints)
 - **Planner**: builds the chapter outline — **honoring your outline if you provided one**, only expanding it if you ask for more chapters
 - **Researcher (Lore Keeper)**: writes a per-chapter brief: which characters are on page, setting details, plot beats, continuity notes
@@ -15,14 +16,14 @@ The writing team consists of five agents:
 - **Reviewer**: checks every draft against the story state for dead-character resurrection, relationship regression/leaps (characters acting like strangers after they've met or become lovers), knowledge errors, and timeline/setting contradictions
 - **Editor**: runs bounded revision rounds until deterministic lint + reviewer findings are fixed, then a final polish pass with a lint guard
 
-All agents share one context object; every LLM call goes through a single configured client with timeouts and retries.
+All agents share one context object; every LLM call goes through a single configured client with timeouts and retries. The full flow is drawn in [How It Works](#how-it-works); the model these runs are tuned for is in [Recommended models](#recommended-models).
 
 ## Tech Stack
 
 | Component | Tool/Library |
 |-----------|-------------|
-| LLMs | Any OpenAI-compatible endpoint (LM Studio, llama.cpp server, vLLM, Ollama, OpenAI, OpenRouter, ...) |
-| Agent Orchestration | Python functions in a sequential pipeline |
+| LLMs | Any OpenAI-compatible endpoint (LM Studio, llama.cpp server, vLLM, Ollama, OpenAI, OpenRouter, ...); see [Recommended models](#recommended-models) for a llama-swap setup that serves several |
+| Agent Orchestration | Python functions in a sequential pipeline (the `STAGES` tuple in `main.py`) |
 | Context Sharing | In-memory shared dict |
 | HTTP Client | requests (with timeout + retry) |
 | Configuration | YAML (actually loaded and applied) |
@@ -34,6 +35,7 @@ multi-agent-book-writer/
 ├── main.py                 # CLI entry point & pipeline orchestrator
 ├── make_epub.py            # finished chapters -> one EPUB (no LLM)
 ├── agents/
+│   ├── seed_review.py      # step 0: critique the seed, expand it, settle the size
 │   ├── architect.py        # seed prompt -> story bible
 │   ├── planner.py          # chapter outline (JSON + seed-outline aware)
 │   ├── researcher.py       # per-chapter lore briefs
@@ -41,15 +43,19 @@ multi-agent-book-writer/
 │   ├── reviewer.py         # continuity review vs story state (JSON verdict)
 │   └── editor.py           # lint -> review -> revise loop, polish, save
 ├── shared/
-│   ├── context.py          # shared state (in-place reset)
+│   ├── story.py            # the run's story record (in-place reset)
 │   ├── resume.py           # the run's state store (output/state/) + resume
 │   ├── llm_client.py      # single LLM client: config, timeout, retries
 │   ├── llm_utils.py        # JSON extraction / output cleanup helpers
 │   ├── story_state.py      # chronology: merge/render story facts
 │   ├── consistency.py      # deterministic lint: bans, quotas, timeline
+│   ├── extraction_checks.py # grounding/death checks on extracted story state
+│   ├── scene_checks.py     # cast, county and spelling checks per chapter
 │   ├── web_search.py       # SearXNG search + optional Docker setup
+│   ├── webanswer.py        # the stdin seam the web GUI answers instead
 │   ├── prompts.py          # every agent's system prompt (role + rules)
 │   ├── config_schema.py    # known config options; warns about typos
+│   ├── envfile.py          # reads .env (API keys, endpoints) for the CLI
 │   ├── runlog.py           # copies console output to a log file
 │   ├── epub.py             # the EPUB builder behind make_epub.py
 │   ├── book_html.py        # the styled HTML page behind the GUI's book link
@@ -59,8 +65,15 @@ multi-agent-book-writer/
 │   └── example_seed.md     # example seed prompt (a fantasy mystery)
 ├── web/                    # optional web GUI (extra: fastapi + uvicorn)
 │   ├── app.py              # HTTP API: one main.py subprocess per book
+│   ├── child.py            # the per-run wrapper that records the exit status
 │   ├── static/index.html   # the page (no build step)
 │   └── __init__.py
+├── tools/                  # offline evaluation harnesses run against real models
+│   ├── extractor_eval.py   # score models on the story-state extractor
+│   ├── reviewer_eval.py    # score reviewers on planted continuity errors
+│   ├── verdict_eval.py     # score the fact-check second check
+│   ├── style_eval.py       # sweep sampling settings against prose samples
+│   └── run-small-model.sh  # start a small GGUF model on the CPU (port 9090)
 ├── Dockerfile              # CLI + web GUI image
 ├── docker-compose.yml      # app (+ optional SearXNG sidecar), books on the host
 ├── tests/                  # offline tests; fake_llm.py is an in-process fake server
@@ -118,6 +131,150 @@ multi-agent-book-writer/
 
    Add `--extra web` (`uv sync --extra web`) if you want the optional
    [web GUI](#web-gui-optional). The CLI does not need it.
+
+## Recommended models
+
+A book run asks a lot of a model in one afternoon: follow a JSON/section format,
+hold a story bible and a growing story state in mind, write ~1,500 words of
+consistent prose per chapter, then judge that prose against the facts it recorded.
+A 7B model gets the structure but the prose is flat, and a weak extractor invents
+facts that poison every later continuity check (see
+[Review quality](#review-quality) and [ROADMAP.md](ROADMAP.md) for the
+measurements). These three have been tuned and run here:
+
+| Rank | llama-swap alias | Model (GGUF) | Weights, hardware | Notes |
+|---|---|---|---|---|
+| **Preferred** | `qwen38-27b-abliterated` | [huihui-ai/Huihui-Qwen3.8-27B-abliterated-GGUF](https://huggingface.co/huihui-ai/Huihui-Qwen3.8-27B-abliterated-GGUF) | 27B dense, `UD-DW-IQ3_XXS` (~12 GB VRAM) | Best prose and instruction-following of the three here; a Qwen3.8 thinking model, so it takes `reasoning_effort` and the thinking switches. Dense, so it lives or dies by its quant: at `IQ3_XXS` all 66 layers fit in 12 GB at 24k context |
+| Next best | `hauhau-qat-26b` | [HauhauCS/Gemma4-26B-A4B-QAT-Uncensored-HauhauCS-Balanced-MTP](https://huggingface.co/HauhauCS/Gemma4-26B-A4B-QAT-Uncensored-HauhauCS-Balanced-MTP) | 26B MoE (4B active), `Q4_K_M` + MTP drafter | Fastest of the three (~66-68 tok/s here): the experts sit in host RAM behind a VRAM expert cache. Uncensored voice, good for darker material; its MTP drafter lets it speculate |
+| Next best | `merousis-26b` | [lithinnon/Merousis-26B-A4B](https://huggingface.co/lithinnon/Merousis-26B-A4B) · [i1 GGUF](https://huggingface.co/mradermacher/Merousis-26B-A4B-i1-GGUF) | 26B MoE (4B active), `i1-Q4_K_M` + MTP drafter | A fiction-voice merge; tracks world state and items well and its prose is the most "written" of the Gemma finetunes. Tied the Qwen on a blind 6-chapter run (63.6 vs 62.6/100) at ~3x the speed |
+
+Blind scoring put the three within a point of each other on a six-chapter run, so
+taste decides more than the score: the Qwen is preferred here for its prose, and
+the two Gemma MoEs are the fallbacks (and what to use when 12 GB is too tight for
+the dense 27B). The Qwen ignored the requested chapter length in that run (0 of 6
+chapters landed in the 1,400-1,700 word band), so keep `llm.max_tokens` and the
+length lint on whichever model you pick.
+
+### Serving several models with llama-swap
+
+[llama-swap](https://github.com/mostlygeek/llama-swap) (docs: <https://llama-swap.ai>)
+is a small proxy in front of `llama-server`: it starts a model on the first
+request, serves it on one stable port, and unloads it after a `ttl` of idleness.
+That suits this pipeline, because `llm.model` and `agents.<name>.model` can name
+different models on the same `llm.base_url` — a 27B for the writer, a faster model
+for the extractor or reviewer — and only one has to be resident at a time.
+
+1. **Put the GGUFs somewhere** (`~/models/...`) and keep `llama-server` on
+   `PATH`. Quant choices that fit a 12 GB card are in the table above.
+2. **Write `~/.config/llama-swap/config.yaml`.** Each key is the model name the
+   API answers to, so it is the name you put in `llm.model`:
+
+   ```yaml
+   healthCheckTimeout: 300      # a 27B cold load takes a while; the default 120 s is tight
+
+   models:
+     "qwen38-27b-abliterated":
+       cmd: >
+         llama-server -m ~/models/qwen3.8-27b-abliterated/Huihui-Qwen3.8-27B-abliterated-UD-DW-IQ3_XXS.gguf
+         --alias qwen38-27b-abliterated --port ${PORT} --host 127.0.0.1
+         -c 24576 --fit on --fit-target 512 -fa on -ctk q8_0 -ctv q8_0
+         -t 6 -b 2048 -ub 512 --jinja --reasoning-budget 2048
+       ttl: 300
+
+     "hauhau-qat-26b":
+       cmd: >
+         llama-server -m ~/models/hauhau-qat-26b/Gemma4-26B-A4B-QAT-Uncensored-HauhauCS-Balanced-Q4_K_M.gguf
+         --alias hauhau-qat-26b --port ${PORT} --host 127.0.0.1
+         -c 65536 -ngl 99 -cmoe --moe-cache-mib 6912 --moe-cache-cpu-share 0
+         -md ~/models/hauhau-qat-26b/mtp-gemma-4-26B-A4B-it.gguf -ngld 99 --spec-draft-n-max 1
+         -fa on -ctk q8_0 -ctv q8_0 -t 6 -b 2048 -ub 1024 --jinja
+       ttl: 300
+
+     "merousis-26b":
+       cmd: >
+         llama-server -m ~/models/merousis-26b/Merousis-26B-A4B.i1-Q4_K_M.gguf
+         --alias merousis-26b --port ${PORT} --host 127.0.0.1
+         -c 65536 -ngl 99 -cmoe --moe-cache-mib 5696 --moe-cache-cpu-share 0
+         -md ~/models/merousis-26b/mtp-gemma-4-26B-A4B-it.gguf -ngld 99 --spec-draft-n-max 1
+         -fa on -ctk q8_0 -ctv q8_0 -t 6 -b 2048 -ub 1024 --jinja
+       ttl: 300
+   ```
+
+   `-cmoe` / `--moe-cache-mib` (experts in host RAM, the hot ones cached in VRAM)
+   come from recent llama.cpp builds; on a stock build use `--n-cpu-moe 14`
+   instead and drop them. The `--alias` must match the key so `/v1/models`
+   advertises the name llama-swap routes on.
+3. **Run it** and point the book writer at the proxy:
+
+   ```bash
+   llama-swap -config ~/.config/llama-swap/config.yaml -listen 127.0.0.1:8080
+   ```
+
+   ```yaml
+   # config.yaml
+   llm:
+     base_url: "http://localhost:8080"   # llama-swap, not a llama-server
+     model: "qwen38-27b-abliterated"
+     context_window: 24576               # must match the model's -c
+     timeout: 600                        # a swapped-in model has to load first
+     endpoint_wait: 300                  # llama-swap answers 503 while it loads
+   ```
+
+   `endpoint_wait` matters: while the proxy swaps a model in, requests come back
+   HTTP 503 "Loading model" until the health check passes, and the pipeline waits
+   that long before aborting the phase (then rerun to resume). `/v1/models` lists
+   every alias, so the startup preflight catches a typo in `llm.model` for you.
+   Any agent can use a different alias, e.g.
+   `agents: {extractor: {model: "merousis-26b"}}`, at the cost of a swap.
+
+### Optimising a model for a book run
+
+These are the levers that changed the numbers here (AMD RX 7700 XT, 12 GB, Ryzen
+5 7600, 30 GB RAM). Measure your own: `tools/style_eval.py`,
+`tools/reviewer_eval.py` and `tools/extractor_eval.py` score a model on prose,
+reviewing and extraction respectively.
+
+- **Quant first.** It decides what fits: a dense 27B wants `Q4_K_M` if you have
+  the VRAM and `IQ3_XXS` (~12 GB) if you do not; a 26B-A4B MoE fits `Q4_K_M`
+  because only 4B parameters are active per token. Leave ~0.5 GB of VRAM free —
+  a full card starts spilling layers and throughput halves.
+- **Context is not free.** 24k is enough for a 5-10 chapter book (the bible,
+  facts and recap grow as it goes) and 32k spilled layers on the 12 GB card
+  above. Bigger context = more KV cache = fewer layers on the GPU. Keep
+  `llm.context_window` equal to the `-c` you actually serve.
+- **KV cache in `q8_0`** (`-ctk q8_0 -ctv q8_0`) buys back the VRAM of a layer
+  or two and made prompt processing ~15% faster here, at no decode cost.
+- **Keep all layers on the GPU.** `--fit on --fit-target 512` lets the build
+  choose the split; if it still spills, lower `-c` before dropping the quant.
+- **Batch sizes.** `-b 2048 -ub 512` is a good default; `-ub 1024` is faster on
+  prompt processing but needs the headroom, and a large `-ub` plus a speculative
+  drafter is a common out-of-memory combination.
+- **Threads = physical cores** (`-t 6` on a 6C/12T CPU). More threads decode
+  slower, not faster.
+- **MoE: experts in RAM, cache in VRAM.** For a 26B-A4B, running the expert
+  layers from host RAM with a VRAM expert cache was worth ~45-47 tok/s → ~67-74
+  tok/s here, because the hot experts stay on the GPU. Sweep `--moe-cache-mib`
+  upward until VRAM is nearly full (5696 MiB for Merousis, 6912 for the Hauhau at
+  64k context). Without those flags, `--n-cpu-moe 14` is the older equivalent.
+- **Speculative decoding** (the Gemma 4 MTP drafter: `-md … --spec-draft-n-max
+  1`): a free speed-up when the drafter and the model agree, a slowdown beyond
+  `n-max 1`. On the dense Qwen the drafter displaced layers and halved
+  throughput, so it is off there.
+- **Thinking.** For Qwen3.8-style models `reasoning_effort: low` is the maximum
+  the template accepts, and the default here; pair it with `--reasoning-budget
+  2048` so a runaway thinking block cannot eat the whole reply. Thinking off made
+  the verifier ~15x and the reviewer ~9x faster on their test batteries with the
+  same accuracy — turn those two agents off (`agents.verifier.enable_thinking:
+  false`, likewise `reviewer`) if wall-clock matters more than the extra look.
+  llama.cpp needs `--jinja` for any of the `chat_template_kwargs` this sends.
+- **Sampling.** `llm.sampling` (llama.cpp/Ollama only) with `min_p` / `top_k`
+  plus DRY (`dry_multiplier`) stops verbatim repeats without flattening the
+  prose; a writer `temperature` of 0.85-0.9 measured better than 1.0, which was
+  purple and cliché-heavy. Leave `sampling` empty for a model with its own tuned
+  defaults.
+- **Cap the output.** `llm.max_tokens` (10240 here) plus the built-in ceilings
+  for the short structured agents stop a model that loops in JSON from running
+  forever; the over-long-chapter tightening pass handles the rest.
 
 ## Usage
 
@@ -542,18 +699,94 @@ resume picks up from the last saved chapter.
 
 ## How It Works
 
+### The workflow
+
+The whole pipeline is the `STAGES` tuple in `main.py`. A stage either returns an
+exit code (and the run stops) or `None` and the next one starts; every stage
+skips work whose result is already in `output/state/`, which is what makes a
+crashed run resumable.
+
+```mermaid
+flowchart TD
+    seed["Seed prompt<br/>--seed FILE / --prompt TEXT / bundled example"]
+
+    subgraph step0["Step 0 - Seed review (agents/seed_review.py)"]
+        review["Model lists the seed's scenes with quotes;<br/>code checks each quote, counts words per scene<br/>and compares them with the requested size"]
+        fits{"does the size fit?"}
+        expand["ask / auto: questions answered,<br/>seed expanded with the answers"]
+        master["Master seed<br/>state/seed.json + output/seed.md"]
+        review --> fits
+        fits -- "too long / too short" --> expand --> review
+        fits -- yes --> master
+    end
+
+    subgraph step1["Step 1 - Architect"]
+        bible["Story bible (JSON)<br/>title, genre, tone, characters, world, constraints"]
+    end
+
+    subgraph step2["Step 2 - Planner"]
+        outline["Chapter outline<br/>the seed's own outline wins; only expanded if asked"]
+    end
+
+    planonly{"--plan-only?"}
+    stop(["stop here, cheaply<br/>rerun to write the book"])
+
+    subgraph step3["Step 3 - Researcher (optional)"]
+        briefs["Per-chapter lore brief<br/>+ optional SearXNG fact-check"]
+    end
+
+    subgraph step45["Steps 4-5 - Writer and Editor, chapter by chapter"]
+        draft["Writer: chapter N from the bible, the brief,<br/>the story facts and the rolling summary"]
+        facts["Extractor: next-chapter summary + story state<br/>(time, place, cast, meetings, deaths, injuries)"]
+        review2["Deterministic lint + LLM review<br/>continuity, outline, constraints, style"]
+        fix["Bounded revise rounds, then polish<br/>and a lint guard"]
+        more{"more chapters?"}
+        draft --> facts --> review2
+        review2 -- findings --> fix --> review2
+        review2 -- clean --> more
+        more -- yes --> draft
+    end
+
+    interleave["book.review_as_you_go: true<br/>re-extract from the edited text,<br/>then write chapter N+1"]
+
+    subgraph save["Save"]
+        files["output/draft.md, output/chapters/chapter_NN.md,<br/>output/story_bible.md, interim/ and state/"]
+        epub["make_epub.py - EPUB 3"]
+        files --> epub
+    end
+
+    seed --> review
+    master --> bible --> outline --> planonly
+    planonly -- no --> briefs --> draft
+    planonly -- yes --> stop
+    more -- no --> files
+    fix -.-> interleave
+```
+
+Every arrow is a checkpoint: the bible, the outline, each brief, draft, summary,
+story state and edited chapter is written to `output/state/` the moment it
+exists, so rerunning the same command after a crash, a Ctrl-C or a dead server
+continues from where it stopped (see [Resume](#resume)). `--plan-only` stops
+after the seed review, the bible and the outline; `--no-resume` moves the old run
+to `output/archive/` and starts over.
+
 ### Pipeline Flow
 
-1. **Architect**: seed prompt → structured story bible (JSON, with a
+1. **Seed review**: the seed is critiqued before it is used — the scenes it
+   supplies (each with a quote code verifies), the timespan, the subplots, the
+   length it would naturally fill — and, with your answers, expanded until it
+   supports the requested size. The kept expansion is the master seed every
+   later stage and any restart uses (see [Seed review](#seed-review))
+2. **Architect**: seed prompt → structured story bible (JSON, with a
    no-LLM fallback that keeps the raw seed)
-2. **Planner**: seed outline (if any) or LLM-generated JSON outline, validated
+3. **Planner**: seed outline (if any) or LLM-generated JSON outline, validated
    and normalized
-3. **Researcher**: a lore brief per chapter, keyed by chapter number
-4. **Writer**: drafts each chapter from bible + brief + story facts + rolling
+4. **Researcher**: a lore brief per chapter, keyed by chapter number
+5. **Writer**: drafts each chapter from bible + brief + story facts + rolling
    summary; after each chapter one call produces both the next-chapter summary
    and a structured **story state** entry (time, location, who's present,
    first meetings, relationship changes, deaths, injuries, secrets revealed)
-5. **Reviewer + Editor**: per chapter, a deterministic lint (banned words,
+6. **Reviewer + Editor**: per chapter, a deterministic lint (banned words,
    countable quotas, `wc -w` word count vs the configured minimum, name
    near-misses, dead characters acting alive, stranger-language between
    characters who've met) plus an LLM continuity review (relationship
@@ -561,9 +794,14 @@ resume picks up from the last saved chapter.
    rounds until the findings are fixed (extra rounds for length while the
    chapter keeps growing ≥15% per round), a final polish pass, and a lint
    guard that keeps whichever version is cleaner
-6. **Save**: `output/draft.md` (created automatically) plus
+7. **Save**: `output/draft.md` (created automatically) plus
    `output/story_bible.md` and `output/interim/lint_report.md` (includes
    per-chapter word counts with **SHORT** flags)
+
+Steps 5 and 6 run over all chapters in one pass by default. With
+`book.review_as_you_go: true` the same two steps are interleaved per chapter
+([Review as you go](#review-as-you-go)): write chapter N, edit it, re-extract
+its story state from the edited text, then write chapter N+1.
 
 ### Interim output
 
@@ -1021,8 +1259,11 @@ This project is open source and available for educational and commercial use.
 ## Notes
 
 - Works with any OpenAI-compatible endpoint (`llm.base_url` in config.yaml;
-  default `http://localhost:11434`, i.e. a local Ollama server)
+  the example uses `http://localhost:1234`, a local LM Studio / llama.cpp server,
+  and `http://localhost:11434`, i.e. a local Ollama server, works too)
 - Content quality depends on the selected model; a 7B model is fine for
-  structure but a larger model gives noticeably better prose
+  structure but a larger model gives noticeably better prose. See
+  [Recommended models](#recommended-models) for the three models these runs are
+  tuned for and how to serve them with llama-swap
 - A full 5-chapter run is roughly 4N+2 LLM calls (~22) — expect several
   minutes to an hour depending on hardware
