@@ -76,6 +76,7 @@ multi-agent-book-writer/
 │   └── run-small-model.sh  # start a small GGUF model on the CPU (port 9090)
 ├── Dockerfile              # CLI + web GUI image
 ├── docker-compose.yml      # app (+ optional SearXNG sidecar), books on the host
+├── CREDITS.md              # origin of the project, and the MIT copyright split
 ├── tests/                  # offline tests; fake_llm.py is an in-process fake server
 ├── ROADMAP.md              # what is planned and what is known to be missing
 ├── output/                 # generated books, run state, interim progress artifacts
@@ -1255,6 +1256,11 @@ Dependencies are declared in `pyproject.toml` (Python 3.11+):
 ## License
 
 This project is open source and available for educational and commercial use.
+
+It started as a fork of
+[EimanTahir027/Multi-Agent-Book-Writer](https://github.com/EimanTahir027/Multi-Agent-Book-Writer)
+(MIT); what came from it, what was rewritten, and the copyright split are in
+[CREDITS.md](CREDITS.md). `LICENSE.txt` keeps the original notice.
 
 ## Notes
 
