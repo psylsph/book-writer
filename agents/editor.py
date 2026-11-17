@@ -123,6 +123,29 @@ def _repair_copy(n, source, text, notes, label):
     return text
 
 
+def _revision_rejected(n, rnd, why, notes, left):
+    """Tell the author a revision was not used, why, and what happens next.
+
+    `why` is a plain phrase ("it removed Dan from the chapter"). Every
+    rejection ends the revising for the chapter (the caller breaks out of the
+    loop) and the polish still runs on the version that was kept, so say so.
+    The note keeps the word "rejected": short_note picks those up."""
+    still = (f" {left} problem(s) are still open (details in "
+             f"{chapter_filename('diff', n)})." if left else "")
+    print(f"[EDITOR] Chapter {n}: revision round {rnd} was not used - {why}. "
+          f"Kept the previous version and stopped revising.{still} "
+          "Moving on to the polish.")
+    notes.append(f"round {rnd}: revision rejected ({why}); kept the previous "
+                 "version and stopped revising")
+
+
+def _polish_rejected(n, why, notes):
+    """Tell the author the polish was not used, why, and what was kept."""
+    print(f"[EDITOR] Chapter {n}: the polish was not used - {why}. Kept the "
+          "unpolished version as the final chapter.")
+    notes.append(f"polish rejected ({why}); kept the unpolished version")
+
+
 def short_note(notes, lint, issues, unreviewed=False):
     """One line on what the edit left undone ('' when it went cleanly), for
     the progress view; the full story is in interim/diff_chapter_NN.md."""
@@ -388,28 +411,31 @@ def run_editor(only=None):
             except AbortRun:
                 raise  # abort rather than silently shipping unedited chapters
             except Exception as e:
-                print(f"[EDITOR] Revision failed for chapter {n}: {e}")
-                notes.append(f"round {rnd}: revision failed ({e})")
+                print(f"[EDITOR] Chapter {n}: revision round {rnd} could not "
+                      f"run ({e}). Kept the previous version and stopped "
+                      "revising. Moving on to the polish.")
+                notes.append(f"round {rnd}: revision failed ({e}); kept the "
+                             "previous version and stopped revising")
                 break
             if revised is None:
-                notes.append(f"round {rnd}: revision discarded (too short)")
+                _revision_rejected(n, rnd, "the model's reply was too short "
+                                   "to be a chapter", notes,
+                                   len(lint) + len(issues))
                 break
             revised = _repair_copy(n, draft, revised, notes, f"round {rnd} revision")
             garbled = garbled_words(draft, revised)
             if garbled:
-                print(f"[EDITOR] Revision of chapter {n} garbled word(s) "
-                      f"({', '.join(garbled[:5])}); keeping the previous "
-                      "version.")
-                notes.append(f"round {rnd}: revision rejected (garbled words: "
-                             + ", ".join(garbled[:5]) + ")")
+                _revision_rejected(
+                    n, rnd, "it garbled some words while copying the text ("
+                    + ", ".join(garbled[:5]) + ")", notes,
+                    len(lint) + len(issues))
                 break
             if word_count(revised) < shrink_floor(
                     word_count(draft), MIN_REVISION_RATIO, min_words):
-                print(f"[EDITOR] Revision for chapter {n} shrank the chapter "
-                      f"({word_count(draft)} -> {word_count(revised)} words); "
-                      "discarding it.")
-                notes.append(f"round {rnd}: revision rejected (shrank the "
-                             "chapter)")
+                _revision_rejected(
+                    n, rnd, f"it cut the chapter from {word_count(draft)} to "
+                    f"{word_count(revised)} words, which would have lost "
+                    "story", notes, len(lint) + len(issues))
                 break
             # only a tightening round must keep everyone: fixing a dead
             # character who walks about removes him, so names the findings
@@ -420,10 +446,9 @@ def run_editor(only=None):
             lost = [m for m in dropped_names(draft, revised, character_names)
                     if not dropped_names(asked, "", [m])] if needs_trim else []
             if lost:
-                print(f"[EDITOR] Revision of chapter {n} dropped "
-                      f"{', '.join(lost)}; keeping the previous version.")
-                notes.append(f"round {rnd}: revision rejected (dropped "
-                             + ", ".join(lost) + ")")
+                _revision_rejected(
+                    n, rnd, f"it removed {', '.join(lost)} from the chapter "
+                    "while shortening it", notes, len(lint) + len(issues))
                 break
             new_lint = full_lint(revised)
             new_verdict, new_issues = verdict, issues
@@ -442,11 +467,10 @@ def run_editor(only=None):
             before, after = severity(lint, issues), \
                 severity(new_lint, new_issues)
             if after > before:
-                print(f"[EDITOR] Revision made chapter {n} worse "
-                      f"(severity {before} -> {after}); "
-                      "keeping the previous version.")
-                notes.append(f"round {rnd}: revision rejected (severity "
-                             f"{before} -> {after})")
+                _revision_rejected(
+                    n, rnd, "it left the chapter with more or worse problems "
+                    f"than before (problem score {before} -> {after})",
+                    notes, len(lint) + len(issues))
                 break
             if needs_trim:
                 tightened = True
@@ -454,10 +478,9 @@ def run_editor(only=None):
                     and word_count(revised) < word_count(draft)):
                 # shorter is fine when it is better; shorter AND no better
                 # only loses text (length no longer weighs in severity)
-                print(f"[EDITOR] Revision of chapter {n} is shorter and fixed "
-                      "nothing; keeping the previous version.")
-                notes.append(f"round {rnd}: revision rejected (shorter, "
-                             "fixed nothing)")
+                _revision_rejected(
+                    n, rnd, "it made the chapter shorter without fixing any "
+                    "of the problems", notes, len(lint) + len(issues))
                 break
             # Progress: fewer/lighter findings, or - while expanding for
             # length - more words (the word_count finding stays until the
@@ -474,9 +497,12 @@ def run_editor(only=None):
             if not progress:
                 # not worse, so kept - but another round on the same findings
                 # would most likely do the same again: stop spending calls
-                print(f"[EDITOR] Chapter {n}: the revision fixed nothing "
-                      f"(severity {after}); no further rounds.")
-                notes.append(f"round {rnd}: no progress; stopping")
+                print(f"[EDITOR] Chapter {n}: revision round {rnd} was kept "
+                      "but did not reduce the problems, so another round "
+                      "would likely do the same. Stopped revising; moving "
+                      "on to the polish.")
+                notes.append(f"round {rnd}: no progress; kept the revision "
+                             "and stopped revising")
                 break
 
         if lint:
@@ -508,46 +534,40 @@ Return ONLY the edited chapter prose: no heading, no commentary."""
         except AbortRun:
             raise  # abort rather than silently shipping the unpolished draft
         except Exception as e:
-            print(f"[EDITOR] Error editing chapter {n}: {e}; keeping draft.")
+            print(f"[EDITOR] Chapter {n}: the polish could not run ({e}). "
+                  "Kept the unpolished version as the final chapter.")
             body = draft
 
         if body is not draft:
             body = _repair_copy(n, draft, body, notes, "polish")
         # deterministic guard: keep whichever version has fewer lint findings
         if body is draft:
-            notes.append("polish failed; pre-polish version kept")
+            notes.append("polish failed; kept the unpolished version")
         elif word_count(body) < shrink_floor(
                 word_count(draft), MIN_POLISH_RATIO,
                 target_words if max_words else 0):
-            print(f"[EDITOR] Polish shortened chapter {n} "
-                  f"({word_count(draft)} -> {word_count(body)} words); "
-                  "keeping pre-polish version.")
-            notes.append("polish rejected (shortened the chapter)")
+            _polish_rejected(n, f"it shortened the chapter from "
+                             f"{word_count(draft)} to {word_count(body)} "
+                             "words", notes)
             body = draft
         elif garbled_words(draft, body):
             garbled = garbled_words(draft, body)
-            print(f"[EDITOR] Polish of chapter {n} garbled word(s) "
-                  f"({', '.join(garbled[:5])}); keeping pre-polish version.")
-            notes.append("polish rejected (garbled words: "
-                         + ", ".join(garbled[:5]) + ")")
+            _polish_rejected(n, "it garbled some words while copying the text ("
+                             + ", ".join(garbled[:5]) + ")", notes)
             body = draft
         elif dropped_names(draft, body, character_names):
             lost = dropped_names(draft, body, character_names)
-            print(f"[EDITOR] Polish of chapter {n} dropped "
-                  f"{', '.join(lost)}; keeping pre-polish version.")
-            notes.append("polish rejected (dropped " + ", ".join(lost) + ")")
+            _polish_rejected(n, f"it removed {', '.join(lost)} from the "
+                             "chapter", notes)
             body = draft
         elif introduced_names(draft, body):
             new = introduced_names(draft, body)
-            print(f"[EDITOR] Polish of chapter {n} introduced new name(s) "
-                  f"({', '.join(new)}); keeping pre-polish version.")
-            notes.append("polish rejected (introduced new names: "
-                         + ", ".join(new) + ")")
+            _polish_rejected(n, "it introduced names that are not in the "
+                             f"story ({', '.join(new)})", notes)
             body = draft
         elif severity(full_lint(body)) > severity(full_lint(draft)):
-            print(f"[EDITOR] Polish introduced lint findings for chapter {n}; "
-                  "keeping pre-polish version.")
-            notes.append("polish rejected (introduced lint findings)")
+            _polish_rejected(n, "it brought in new style or consistency "
+                             "problems", notes)
             body = draft
         else:
             notes.append("polish accepted")

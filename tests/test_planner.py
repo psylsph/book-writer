@@ -131,3 +131,20 @@ def test_unreadable_reply_keeps_the_seed_outline(cfg, monkeypatch):
     _stub_llm(monkeypatch, "I cannot help with that.")
     chapters = planner.run_planner(num_chapters=4)
     assert [c["title"] for c in chapters] == ["A", "B"]
+
+
+def test_unusable_reply_is_asked_again(cfg, monkeypatch):
+    """Regression: an empty reply stopped the whole book ("empty outline");
+    a fresh sample is taken first, and the bad reply is kept for diagnosis."""
+    cfg()
+    prompts = _stub_llm(monkeypatch, "", "Sorry, no.", _outline(3))
+    chapters = planner._plan_with_llm({"title": "T"}, 3)
+    assert [c["title"] for c in chapters] == ["T1", "T2", "T3"]
+    assert len(prompts) == 3
+
+
+def test_outline_fails_after_the_attempts(cfg, monkeypatch, tmp_path):
+    cfg()
+    _stub_llm(monkeypatch, *[""] * planner.PLANNER_ATTEMPTS)
+    with pytest.raises(ValueError, match="empty outline"):
+        planner._plan_with_llm({"title": "T"}, 3)

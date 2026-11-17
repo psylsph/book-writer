@@ -207,6 +207,38 @@ def _fallback_line_parse(raw):
     return _sanitize_numbers(chapters)
 
 
+# A thinking model now and then ends its turn with an empty or unusable reply
+# (seen in the web GUI: two runs in a row stopped here with "empty outline"
+# while the same prompt replayed by hand gave a valid one). A fresh sample is
+# cheap next to stopping the whole book, so ask again before giving up.
+PLANNER_ATTEMPTS = 3
+
+
+def _ask_for_outline(prompt):
+    """The model's outline as a list of chapter dicts, asking up to
+    PLANNER_ATTEMPTS times. Raises ValueError when no reply held one."""
+    for attempt in range(1, PLANNER_ATTEMPTS + 1):
+        raw = generate_with_wait(prompt, system=prompts.PLANNER,
+                                 agent="planner")
+        try:
+            chapters = extract_json(raw, expect="array")
+        except ValueError:
+            # still merged with the author's fixed chapters and held to the
+            # requested count by the caller, like a JSON reply
+            print("[PLANNER] JSON parse failed; falling back to line parsing.")
+            chapters = _fallback_line_parse(raw)
+        if isinstance(chapters, list) and chapters:
+            return chapters
+        # keep what came back: with it gone a failure like this cannot be
+        # diagnosed (the replies are not in the run log)
+        save_interim(f"planner_reply_{attempt}.txt",
+                     raw or "(the reply was empty)")
+        print(f"[PLANNER] Reply {attempt} of {PLANNER_ATTEMPTS} held no "
+              f"outline ({len(raw or '')} characters)"
+              + ("; asking again." if attempt < PLANNER_ATTEMPTS else "."))
+    raise ValueError("planner returned an empty outline")
+
+
 def _plan_with_llm(bible, target, fixed_prefix=None):
     """Ask the LLM for a JSON outline, honoring any fixed seed chapters."""
     characters = "\n".join(
@@ -254,18 +286,7 @@ The chapters must form a complete dramatic arc (setup, rising action, climax, re
 Give every chapter its own distinct story material from the brief; do not split one scene across chapters to fill the count, and do not repeat a beat.
 No markdown fences, no commentary - JSON only."""
 
-    raw = generate_with_wait(prompt, system=prompts.PLANNER,
-                                    agent="planner")
-    try:
-        chapters = extract_json(raw, expect="array")
-    except ValueError:
-        # still merged with the author's fixed chapters and held to the
-        # requested count below, like a JSON reply
-        print("[PLANNER] JSON parse failed; falling back to line parsing.")
-        chapters = _fallback_line_parse(raw)
-
-    if not isinstance(chapters, list) or not chapters:
-        raise ValueError("planner returned an empty outline")
+    chapters = _ask_for_outline(prompt)
 
     normalized = []
     for ch in chapters:

@@ -415,7 +415,9 @@ def test_a_polish_failure_keeps_the_revised_draft(tmp_path, monkeypatch,
 
     _editor(monkeypatch, tmp_path, {1: _words(120)}, prose)
     editor.run_editor()
-    assert "Error editing chapter 1: model fell over" in capsys.readouterr().out
+    out = capsys.readouterr().out
+    assert "the polish could not run (model fell over)" in out
+    assert "Kept the unpolished version as the final chapter" in out
     assert STORY["final"][1] == _words(120)
 
 
@@ -466,7 +468,10 @@ def test_a_failed_revision_call_keeps_the_draft(tmp_path, monkeypatch, capsys):
 
     _editor(monkeypatch, tmp_path, {1: _words(50)}, prose)
     editor.run_editor()
-    assert "Revision failed for chapter 1: bad reply" in capsys.readouterr().out
+    out = capsys.readouterr().out
+    assert "revision round 1 could not run (bad reply)" in out
+    assert "Kept the previous version and stopped revising" in out
+    assert "Moving on to the polish" in out
     diff = (tmp_path / "out" / "interim" / "diff_chapter_01.md").read_text()
     assert "revision failed (bad reply)" in diff
 

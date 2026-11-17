@@ -347,12 +347,18 @@ def test_short_note_names_what_the_editor_gave_up_on():
     notes = ["lint on the draft: 2 finding(s)\n  - quota",
              "reviewer: unreviewed - the reply could not be read",
              "round 1: revision accepted (findings 2 -> 1)",
-             "round 2: revision rejected (severity 3 -> 5)",
-             "polish rejected (introduced new names: Zed)"]
+             "round 2: revision rejected (it left the chapter with more or "
+             "worse problems than before (problem score 3 -> 5)); kept the "
+             "previous version and stopped revising",
+             "polish rejected (it introduced names that are not in the story "
+             "(Zed)); kept the unpolished version"]
     note = short_note(notes, [{"check": "quota"}], [{"type": "timeline"}])
-    assert note == ("revision rejected (severity 3 -> 5); polish rejected "
-                    "(introduced new names: Zed); 2 finding(s) left: quota, "
-                    "timeline")
+    assert note == (
+        "revision rejected (it left the chapter with more or worse problems "
+        "than before (problem score 3 -> 5)); kept the previous version and "
+        "stopped revising; polish rejected (it introduced names that are "
+        "not in the story (Zed)); kept the unpolished version; "
+        "2 finding(s) left: quota, timeline")
     assert short_note(["round 1: revision accepted", "polish accepted"],
                       [], []) == ""
     assert short_note([], [], [], unreviewed=True) == "no readable review"
@@ -367,7 +373,8 @@ def test_finished_chapters_are_timed_and_noted(tmp_path, monkeypatch):
                 polish_reply=_words(148, prefix="beta") + " and then met Darius")
     notes = load_state()["chapter_notes"]
     assert notes[1]["edited_at"] > 0
-    assert "introduced new names: Darius" in notes[1]["note"]
+    assert "introduced names that are not in the story (Darius)" in notes[1]["note"]
+    assert "kept the unpolished version" in notes[1]["note"]
 
 
 def test_a_fused_word_in_the_polish_is_repaired_not_kept(tmp_path, monkeypatch):
@@ -496,3 +503,27 @@ def test_shrink_floor_allows_tightening_only_down_to_the_length():
     assert editor.shrink_floor(3189, 0.75, 1280) == 1280   # 2,200 is allowed
     assert editor.shrink_floor(1806, 0.85, 1600) == 0.85 * 1806   # 438 is not
     assert editor.shrink_floor(1000, 0.75, 0) == 750
+
+
+def test_a_rejected_revision_says_why_and_what_happened_next(capsys):
+    """The author reads this in the console and the GUI: plain words, and the
+    action taken after the rejection (not "severity 3 -> 5")."""
+    from agents.editor import _polish_rejected, _revision_rejected
+    notes = []
+    _revision_rejected(4, 2, "it removed Dan from the chapter while "
+                       "shortening it", notes, left=3)
+    out = capsys.readouterr().out
+    assert "Chapter 4: revision round 2 was not used - it removed Dan" in out
+    assert "Kept the previous version and stopped revising" in out
+    assert "3 problem(s) are still open" in out and "diff_chapter_04" in out
+    assert "Moving on to the polish" in out
+    assert notes == ["round 2: revision rejected (it removed Dan from the "
+                     "chapter while shortening it); kept the previous "
+                     "version and stopped revising"]
+    _revision_rejected(4, 1, "x", notes, left=0)
+    assert "problem(s) are still open" not in capsys.readouterr().out
+    notes.clear()
+    _polish_rejected(4, "it shortened the chapter from 900 to 400 words", notes)
+    assert "Kept the unpolished version as the final chapter" in capsys.readouterr().out
+    assert notes == ["polish rejected (it shortened the chapter from 900 to "
+                     "400 words); kept the unpolished version"]

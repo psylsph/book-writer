@@ -255,7 +255,8 @@ def test_rejected_revision_is_recorded_in_the_diff(tmp_path, monkeypatch):
     shrunk = _words(20, "tiny")                     # < 100 words: discarded
     _editor_run(tmp_path, monkeypatch, revise=shrunk)
     diff = (tmp_path / "out" / "interim" / "diff_chapter_03.md").read_text()
-    assert "revision discarded (too short)" in diff
+    assert "revision rejected (the model's reply was too short to be a chapter)" in diff
+    assert "kept the previous version and stopped revising" in diff
 
 
 def test_an_issue_quoting_text_not_in_the_chapter_is_dropped(tmp_path,
